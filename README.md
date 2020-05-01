@@ -5,3 +5,5 @@ The parameters and status be controlled via several channels:
   - Local user interface with screen and rotary encoder;
   - Thinger IOT cloud;
   - Telegram bot messages.
+
+The sketch is still under development and may have bugs. I am uploading different stages of the development - the latest version is the most debugged one.
