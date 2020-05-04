@@ -325,7 +325,7 @@ void TimeElapsedFunction() { // Time counter
 
 void generateStatusStrings() {
   snprintf_P(lastSystemStatus, sizeof(lastSystemStatus), PSTR("== Water volume: %d L;\nWater flow: %d L/min;\nWater temperature: %d°C;\nLast fill duration: %d min;\nFilling pump uptime: %d min/2h. =="), params.waterVolume, params.currentWaterFlow, params.waterTemperature, params.lastFillDuration, params.fillingPumpONDuration);
-  snprintf_P(lastEnvironmentStatus, sizeof(lastEnvironmentStatus), PSTR("== Amb. temp. 1: %d°C; Amb. hum. 1: %d%%;\nAmb. temp. 2: %d°C; Amb. hum. 2: %d%%. =="), params.ambientTemperature1, params.ambientHumidity1, params.ambientTemperature2, params.ambientHumidity2);
+  snprintf_P(lastEnvironmentStatus, sizeof(lastEnvironmentStatus), PSTR("== Amb. temp. 1 (basement): %d°C; Amb. hum. 1: %d%%;\nAmb. temp. 2 (house): %d°C; Amb. hum. 2: %d%%. =="), params.ambientTemperature1, params.ambientHumidity1, params.ambientTemperature2, params.ambientHumidity2);
   snprintf_P(lastOperationStatus, sizeof(lastOperationStatus), PSTR("== Pressure pump status: %d;\nCurrent auto filling: %d;\nCurrent manual filling: %d;\nController uptime: %d min;\nPaused state: %d;\nMannual override mode: %d;\nAuto reset mode: %d;\nDoor switch state: %d;\nFault code: %d. =="), params.currentPressure, params.currentAutoFilling, params.currentManualFilling, params.controllerUptime, params.pausedState, commands.forceNoChecks, commands.autoReset, params.doorSwitchState, params.faultCode);
   snprintf_P(lastControlStatus, sizeof(lastControlStatus), PSTR("== Pressure mode: %d; Filling mode: %d;\nForce pause: %d; Force reset: %d;\nminWaterVolume: %d L; maxWaterVolume: %d L. =="), commands.pressureMode, commands.fillingMode, commands.forcePause, commands.forceReset, commands.minWaterVolume, commands.maxWaterVolume);
   snprintf_P(lastDateTimeStatus, sizeof(lastDateTimeStatus), PSTR("== Current date and time: %02d.%02d.%04d - %02d:%02d:%02d. =="), params.currentDateDay, params.currentDateMonth, params.currentDateYear, params.currentTimeHours, params.currentTimeMinutes, params.currentTimeSeconds);
@@ -1289,9 +1289,13 @@ void resumeFromErrorFunction() { // Recent error cleared - resume and notify
   strcpy (binaryfaultCodeString, "");
   strcpy (faultDescription, "All errors cleared - resuming...");
   Serial.println(faultDescription);
+  displayDimTimer = millis();
+  lcd.backlight();
   lcd.clear();
-  lcd.setCursor(0, 2);
+  lcd.setCursor(0, 0);
   lcd.print(F("No errors - resuming"));
+  lcd.setCursor(0, 1);
+  lcd.print(F("from error..."));
   tone (buzzer, 800, 150); // Buzz for 150 milliseconds with frequency 800 Hz
   delay (400);
   tone (buzzer, 800, 150); // Buzz for 150 milliseconds with frequency 800 Hz
@@ -1440,18 +1444,21 @@ void PausedStateFunction() { // pausedState - stop all processes and raise pause
     selectorButtonMenu = false;
     selectorButtonCode = false;
     manualButtonCode = false;
+    displayDimTimer = millis();
+    lcd.backlight();
     lcd.clear();
-    lcd.setCursor(0, 2);
-    lcd.print(F("Paused... "));
-    //    delay (2000);
+    lcd.setCursor(0, 0);
+    lcd.print(F("Paused..."));
   }
 }
 
 
 void ResumeFunction() { // Resume from pause or error
+  displayDimTimer = millis();
+  lcd.backlight();
   lcd.clear();
-  lcd.setCursor(0, 2);
-  lcd.print(F("Resuming...     "));
+  lcd.setCursor(0, 0);
+  lcd.print(F("Resuming..."));
   Serial.println(F("Resumed from paused state.")); //temp
   tone (buzzer, 800, 150); // Buzz for 150 milliseconds with frequency 700 Hz
   delay (400);
@@ -1484,7 +1491,7 @@ void ResetFunction() { // Stop all processes and restart system
 
 void myshutdown() {
   //  initLaserDistanceSensor ();
-  Serial.println(F("We gonna shut down ! ..."));
+  Serial.println(F("We gonna shut down!..."));
   SWWatchdog.setup(WDT_HARDCYCLE16S);  // initialize WDT-hardcounter refesh cycle on 16sec interval
 }
 
@@ -1925,7 +1932,7 @@ void communicateWithTelegram() {
           }
           else if (bot.messages[i].text == "/start") {
             Bot_mtbs = 1000;
-            bot.sendMessage(bot.messages[i].chat_id, "Chat mode started - awaiting your command:");
+            bot.sendMessage(bot.messages[i].chat_id, "Chat mode active - awaiting your command:");
           }
           else if (bot.messages[i].text == "/pressure OFF") {
             commands.pressureMode = 0;
@@ -2000,7 +2007,7 @@ void communicateWithTelegram() {
             //            SWWatchdog.clear();
             //            bot.sendMessage(bot.messages[i].chat_id, "");
             SWWatchdog.clear();
-            bot.sendMessage(bot.messages[i].chat_id, "/minvolume XXX: Set lowest water level to XXX litres.\n/maxvolume XXX: Set highest water level to XXX litres.\n/pause: Force system into pause mode.\n/resume: Resume system from pause mode.");
+            bot.sendMessage(bot.messages[i].chat_id, "/minvolume XXX: Set lowest water level to XXX litres.\n/maxvolume XXX: Set highest water level to XXX litres.\n/pause: Force system into pause mode.\n/resume: Resume system from pause mode or from error.");
             SWWatchdog.clear();
             bot.sendMessage(bot.messages[i].chat_id, "/autoreset ON: Set autoReset mode to ON.\n/autoreset OFF: Set autoReset mode to OFF.\n/reset: Force system to reset.\n== End of list ==");
           }
