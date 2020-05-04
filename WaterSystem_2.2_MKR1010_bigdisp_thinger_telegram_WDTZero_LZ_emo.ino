@@ -653,31 +653,46 @@ void displayCurrentStatus() {
     displayPressureLine ();
     switch (currentDisplayCycle) { // Cycle display
       case 0: // Display cycle 0
-        if (params.currentAutoFilling || params.currentManualFilling) displayFlowDurationLine(); else displayIdleAnimation();
+        if (params.currentAutoFilling || params.currentManualFilling) displayFlowDurationLine(); else displayTimeAndUptime();
         displayAmbientLine();
         break;
       case 1: // Display cycle 1
-        if (params.currentAutoFilling || params.currentManualFilling) displayFlowDurationLine(); else displayIdleAnimation();
+        if (params.currentAutoFilling || params.currentManualFilling) displayFlowDurationLine(); else displayTimeAndUptime();
         displayAmbientLine();
         break;
       case 2: // Display cycle 2
-        displayIdleAnimation();
+        displayTimeAndUptime();
         displayWiFiStatus();
         break;
       case 3: // Display cycle 3
-        if (params.faultCode != 0) displayFaultCode(); else displayIdleAnimation();
+        if (params.faultCode != 0) displayFaultCode(); else displayTimeAndUptime();
         displayWiFiStatus();
         break;
     }
     displayLines();
-    if (!params.currentAutoFilling && !params.currentManualFilling && !params.pausedState && !params.faultCode && (currentDisplayCycle == 3)) {
-      lcd.setCursor(0, 2);
-      lcd.write(1);
+    lcd.setCursor(0, 2); // Display animation on first position of line 2 to show system is running
+    switch (currentDisplayCycle) { // Cycle display
+      case 0: // Display cycle 0
+        lcd.print("|");
+        break;
+      case 1: // Display cycle 1
+        lcd.print("/");
+        break;
+      case 2: // Display cycle 2
+        lcd.print("-");
+        break;
+      case 3: // Display cycle 3
+        lcd.write(1); // Display back-slash
+        break;
     }
+    //    if (!params.currentAutoFilling && !params.currentManualFilling && !params.pausedState && !params.faultCode && (currentDisplayCycle == 3)) {
+    //      lcd.setCursor(0, 2);
+    //      lcd.write(1);
+    //    }
     currentDisplayCycle++;
     if (currentDisplayCycle > 3) currentDisplayCycle = 0;
   }
-  if (params.faultCode != 0 && ((millis() - currentDisplayCycleTimer2) >= 200)) {
+  if (params.faultCode != 0 && ((millis() - currentDisplayCycleTimer2) >= 200)) { // If there is an error, scroll error description on line 3
     strcpy (displayLineString[3], "");
     for (byte i = 0; i < 20; i++) {
       if ((positionCounter + i) < strlen(faultDescription)) {
@@ -745,16 +760,16 @@ void displayPressureLine () { // char displayLineString[0][21];     //Pres:AUTO 
 
 void displayFlowDurationLine () {  // char displayLineString[3][21];     // mFl:35L/min Dur:38'  or  FaultDescription or Submenu Item
   char temporaryString [17] = "";
-  strcpy_P(displayLineString[2], PSTR("Flow"));
+  strcpy_P(displayLineString[2], PSTR(" Flow"));
   if (commands.forceNoChecks) strcat(displayLineString[2], "!"); else strcat(displayLineString[2], ":");
   unsigned int currentFillDuration = (millis() - lastFillStartTime - (pausedDuration - fillStartPausedDuration)) / 60000;
-  snprintf_P(temporaryString, sizeof(temporaryString), PSTR("%2dL/min Dur:%2d'\n"), params.currentWaterFlow,  currentFillDuration);
+  snprintf_P(temporaryString, sizeof(temporaryString), PSTR("%dL/min;Dur:%d' "), params.currentWaterFlow,  currentFillDuration);
   strcat(displayLineString[2], temporaryString);
   displayLineString[2][20] = 0;
 }
 
 
-void displayIdleAnimation () {  // char displayLineString[3][21];     // mFl:35L/min Dur:38'  or  FaultDescription or Submenu Item
+void displayTimeAndUptime () {  // char displayLineString[3][21];     // mFl:35L/min Dur:38'  or  FaultDescription or Submenu Item
   byte hours, minutes;
   char timeElapsedString[20];
   hours = params.controllerUptime / 60;
@@ -762,27 +777,16 @@ void displayIdleAnimation () {  // char displayLineString[3][21];     // mFl:35L
   getDateAndTime ();
   switch (currentDisplayCycle) { // Cycle display
     case 0:
-      snprintf_P (displayLineString[2], sizeof(displayLineString[2]), PSTR("|"));
-      snprintf_P (timeElapsedString, sizeof(timeElapsedString), PSTR("%02d.%02d.%04d %02d:%02d:%02d"), params.currentDateDay, params.currentDateMonth, params.currentDateYear, params.currentTimeHours, params.currentTimeMinutes, params.currentTimeSeconds);
-      strcat (displayLineString[2], timeElapsedString);
+      snprintf_P (displayLineString[2], sizeof(displayLineString[2]), PSTR(" %02d.%02d.%04d %02d:%02d:%02d "), params.currentDateDay, params.currentDateMonth, params.currentDateYear, params.currentTimeHours, params.currentTimeMinutes, params.currentTimeSeconds);
       break;
     case 1:
-      snprintf_P (displayLineString[2], sizeof(displayLineString[2]), PSTR("/"));
-      //                                                              1234567890123456789
-      snprintf_P (timeElapsedString, sizeof(timeElapsedString), PSTR("Running for %dh %d'  "), hours, minutes);
-      //      snprintf_P (timeElapsedString, sizeof(timeElapsedString), PSTR(" Time worked: %02d:%02d "), hours, minutes);
-      strcat (displayLineString[2], timeElapsedString);
+      snprintf_P (displayLineString[2], sizeof(displayLineString[2]), PSTR(" Running for %dh %d'  "), hours, minutes);
       break;
     case 2:
-      snprintf_P (displayLineString[2], sizeof(displayLineString[2]), PSTR("-"));
-      snprintf_P (timeElapsedString, sizeof(timeElapsedString), PSTR("%02d.%02d.%04d %02d:%02d:%02d"), params.currentDateDay, params.currentDateMonth, params.currentDateYear, params.currentTimeHours, params.currentTimeMinutes, params.currentTimeSeconds);
-      strcat (displayLineString[2], timeElapsedString);
+      snprintf_P (displayLineString[2], sizeof(displayLineString[2]), PSTR(" %02d.%02d.%04d %02d:%02d:%02d "), params.currentDateDay, params.currentDateMonth, params.currentDateYear, params.currentTimeHours, params.currentTimeMinutes, params.currentTimeSeconds);
       break;
     case 3:
-      snprintf_P (displayLineString[2], sizeof(displayLineString[2]), PSTR(" "));
-      snprintf_P (timeElapsedString, sizeof(timeElapsedString), PSTR("Running for %dh %d'  "), hours, minutes);
-      //      snprintf_P (timeElapsedString, sizeof(timeElapsedString), PSTR(" Time worked: %02d:%02d "), hours, minutes);
-      strcat (displayLineString[2], timeElapsedString);
+      snprintf_P (displayLineString[2], sizeof(displayLineString[2]), PSTR(" Running for %dh %d'  "), hours, minutes);
       break;
   }
   displayLineString[2][20] = 0;
@@ -800,7 +804,7 @@ void displayAmbientLine () { // char displayLineString[1][21];     // Amb:22/24o
 
 
 void displayFaultCode () {
-  snprintf_P(displayLineString[2], sizeof(displayLineString[2]), PSTR("ERROR %3d:"), params.faultCode);
+  snprintf_P(displayLineString[2], sizeof(displayLineString[2]), PSTR(" ERROR %3d:"), params.faultCode);
   strcat (displayLineString[2], binaryfaultCodeString);
   while (strlen(displayLineString[2]) < 20) strcat (displayLineString[2], " ");
   displayLineString[2][20] = 0;
