@@ -81,7 +81,7 @@ const int   SECRET_KNOWN_SSID_COUNT = sizeof(SECRET_KNOWN_SSID) / sizeof(SECRET_
 #define DHTTYPE DHT11
 
 RTCZero rtc;
-LiquidCrystal_I2C lcd(0x27, 20, 4); // set the LCD address to 0x27 for a 20 chars and 4 line display
+LiquidCrystal_I2C lcd(0x27, 20, 4); // set the LCD address to 0x27 for a 20 chars by 4 line display
 //rgb_lcd lcd;
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature waterThermometer(&oneWire);
@@ -94,7 +94,7 @@ ThingerWiFiNINA thing(SECRET_THINGER_USERNAME, SECRET_THINGER_DEVICE_ID, SECRET_
 WiFiSSLClient wifisslclient;
 //TelegramBot bot (SECRET_BOT_TOKEN, wifisslclient); // Needed for MKR 1000 if TelegramBot.h library is used
 UniversalTelegramBot bot (SECRET_BOT_TOKEN, wifisslclient);
-WDTZero SWWatchdog; // Define WDT
+WDTZero softwareWatchdog; // Define WDT
 EnergyMonitor emon1;                   // Create an instance of EnergyMonitor class
 
 
@@ -379,8 +379,8 @@ void getDateAndTime() {
 void UserMenuFunction() { // User menu
   int menuSelectorValue = 0;
   lcd.backlight();
-  SWWatchdog.clear();
-  //  SWWatchdog.disable();
+  softwareWatchdog.clear();
+  //  softwareWatchdog.disable();
   //  int setParameterValue = 0;  // Returned parameter value number
   //  int setParameterCount = 0;  // Number of parameter values to choose from (should not be more than 20)
   shortBeep();
@@ -1512,7 +1512,7 @@ void ResetFunction() { // Stop all processes and restart system
 void myshutdown() {
   //  initLaserDistanceSensor ();
   Serial.println(F("We gonna shut down!..."));
-  SWWatchdog.setup(WDT_HARDCYCLE16S);  // initialize WDT-hardcounter refesh cycle on 16sec interval
+  softwareWatchdog.setup(WDT_HARDCYCLE16S);  // initialize WDT-hardcounter refesh cycle on 16sec interval
 }
 
 
@@ -1537,7 +1537,7 @@ void connectToWiFi(int retryMilliSeconds = 15000) {
   }
   unsigned long connectWiFiTimer = millis ();
   // attempt to connect to WiFi network
-  SWWatchdog.clear();
+  softwareWatchdog.clear();
   // ----------------------------------------------------------------
   // Disconnect from an AP if it was previously connected
   // ----------------------------------------------------------------
@@ -1595,10 +1595,10 @@ void connectToWiFi(int retryMilliSeconds = 15000) {
       Serial.println(SECRET_KNOWN_SSID[networkID]);
       while (WiFiStatus != WL_CONNECTED && (millis() < (connectWiFiTimer + retryMilliSeconds))) {
         // Connect to WPA/WPA2 network:
-        SWWatchdog.clear();
+        softwareWatchdog.clear();
         WiFi.begin(SECRET_KNOWN_SSID[networkID], SECRET_KNOWN_PASSWORD[networkID]);
         Serial.print(".");
-        SWWatchdog.clear();
+        softwareWatchdog.clear();
         delay(2000); // wait 2 seconds for connection
       }
       Serial.println("");
@@ -1730,12 +1730,12 @@ void getEpochFromInternet() {
 void initThingerConfiguration () {
   getEpochFromInternet();
   if (InternetConnectionAlive) {
-    SWWatchdog.clear();
+    softwareWatchdog.clear();
     Serial.println (F("##### Starting Thinger init... #####"));
     if (networkID != -1) thing.add_wifi(SECRET_KNOWN_SSID[networkID], SECRET_KNOWN_PASSWORD[networkID]);
     //    thing.add_wifi(WIFI_SSID, WIFI_PASSWORD);
     // Define output of values of params.
-    SWWatchdog.clear();
+    softwareWatchdog.clear();
     thing["CA"] >> outputValue(params.currentAutoFilling);
     thing["CM"] >> outputValue(params.currentManualFilling);
     thing["CP"] >> outputValue(params.currentPressure);
@@ -1749,7 +1749,7 @@ void initThingerConfiguration () {
     thing["T2"] >> outputValue(params.ambientTemperature2);
     thing["H2"] >> outputValue(params.ambientHumidity2);
     thing["DS"] >> outputValue(params.doorSwitchState);
-    SWWatchdog.clear();
+    softwareWatchdog.clear();
     thing["PS"] >> outputValue(params.pausedState);
     thing["FC"] >> outputValue(params.faultCode);
     thing["PM"] >> outputValue(commands.pressureMode);
@@ -1768,7 +1768,7 @@ void initThingerConfiguration () {
     thing["DM"] >> outputValue(params.currentDateMonth);
     thing["DD"] >> outputValue(params.currentDateDay);
     // Define input of new data in newCommands.
-    SWWatchdog.clear();
+    softwareWatchdog.clear();
     thing["nPM"] << inputValue (newCommands.pressureMode, {newData = true;});
     thing["nFM"] << inputValue (newCommands.fillingMode, {newData = true;});
     thing["nLV"] << inputValue (newCommands.minWaterVolume, {newData = true;});
@@ -1777,12 +1777,12 @@ void initThingerConfiguration () {
     thing["nFR"] << inputValue (newCommands.forceReset, {newData = true;});
     thing["nFP"] << inputValue (newCommands.forcePause, {newData = true;});
     //  Thinger data definitions - end
-    SWWatchdog.clear();
+    softwareWatchdog.clear();
     thing.handle(); // First communication
     snprintf_P(initActionResult, sizeof(initActionResult), PSTR("Thinger init..[Done]"));
     Serial.println (F("##### Thinger configuration completed. #####"));
     ThingerConnectionAlive = true;
-    SWWatchdog.clear();
+    softwareWatchdog.clear();
   }
   else {
     ThingerConnectionAlive = false;
@@ -1803,11 +1803,9 @@ void communicateWithThinger() {
     if (InternetConnectionAlive && ThingerConnectionAlive) {
       newCommands = commands;
       newData = false;
-      //    SWWatchdog.disable();
-      SWWatchdog.clear();
+      softwareWatchdog.clear();
       thing.handle();
-      SWWatchdog.clear();
-      //    SWWatchdog.enable(SWWatchdogRestartTime * 1000);
+      softwareWatchdog.clear();
       if (commands.debugLevel > 2) Serial.println(F(" === communicateWithThinger point 2: Thinger handling done. ==="));
       dataTransferTimer = millis();
     }
@@ -1845,7 +1843,7 @@ void initTelegramBotConfiguration() { // Telegram bot init
   getEpochFromInternet();
   bool botResult = false;
   if (InternetConnectionAlive) {
-    //    SWWatchdog.disable();
+    //    softwareWatchdog.disable();
     Serial.println (F("##### Starting Telegram bot configuration... #####"));
     //    bot.begin(); // Initialize Telegram bot - not required for UniversalTelegramBot library
     generateStatusStrings();
@@ -1857,7 +1855,7 @@ void initTelegramBotConfiguration() { // Telegram bot init
       Bot_lasttime = millis();
       snprintf_P(initActionResult, sizeof(initActionResult), PSTR("Telegram init.[Done]"));
       Serial.println (F("##### Telegram bot configuration completed. #####"));
-      SWWatchdog.clear();
+      softwareWatchdog.clear();
       TelegramConnectionAlive = true;
     }
     else {
@@ -1879,7 +1877,7 @@ void errorTelegramNotification () { // Telegram bot init
   getEpochFromInternet();
   bool botResult = false;
   if (InternetConnectionAlive && TelegramConnectionAlive) {
-    SWWatchdog.clear();
+    softwareWatchdog.clear();
     Serial.println (F("Starting Telegram bot ERROR notification..."));
     generateStatusStrings();
     int numNewMessages = bot.getUpdates(1);
@@ -1890,11 +1888,11 @@ void errorTelegramNotification () { // Telegram bot init
       bot.sendMessage(SECRET_BOT_CHATID, String (faultDescription));
     }
     //    bot.sendMessage(SECRET_BOT_CHATID, "== Minutes worked: " + String(params.controllerUptime) + " ==" + "\n" + lastSystemStatus + "\n" + lastEnvironmentStatus);
-    //    SWWatchdog.clear();
+    //    softwareWatchdog.clear();
     //    bot.sendMessage(SECRET_BOT_CHATID, lastOperationStatus);
-    //    SWWatchdog.clear();
+    //    softwareWatchdog.clear();
     //    bot.sendMessage(SECRET_BOT_CHATID, "\n" + String(lastControlStatus) + "\n" + String(lastNetworkStatus) + "\n" + String(lastDateTimeStatus) + "\n== End of status ==");
-    SWWatchdog.clear();
+    softwareWatchdog.clear();
   }
   else {
     Serial.println (F("Telegram ERROR notification aborted due to no Internet connection!"));
@@ -1907,8 +1905,8 @@ void errorTelegramNotification () { // Telegram bot init
 
 
 void communicateWithTelegram() {
-  //  SWWatchdog.disable();
-  SWWatchdog.clear();
+  //  softwareWatchdog.disable();
+  softwareWatchdog.clear();
   if ((millis() - Bot_lastMessage) >= Bot_sleeptime) Bot_mtbs = 10000; else Bot_mtbs = 3000;
   if (commands.debugLevel > 1) Serial.print(F(" === communicateWithTelegram point 1: milliseconds between Telegram bot checks: "));
   if (commands.debugLevel > 1) Serial.println(Bot_mtbs);
@@ -1944,10 +1942,10 @@ void communicateWithTelegram() {
           if (bot.messages[i].text == "/status") {
             generateStatusStrings();
             bot.sendMessage(bot.messages[i].chat_id, "== Minutes worked: " + String(params.controllerUptime) + " ==\n" + lastSystemStatus + "\n" + lastEnvironmentStatus);
-            SWWatchdog.clear();
+            softwareWatchdog.clear();
             bot.sendMessage(bot.messages[i].chat_id, lastOperationStatus);
             if (params.faultCode) bot.sendMessage(bot.messages[i].chat_id, faultDescription);
-            SWWatchdog.clear();
+            softwareWatchdog.clear();
             bot.sendMessage(bot.messages[i].chat_id, "\n" + (String(lastControlStatus) + "\n" + String(lastNetworkStatus) + "\n" + String(lastDateTimeStatus) + "\n== End of status =="));
           }
           else if (bot.messages[i].text == "/start") {
@@ -2022,13 +2020,13 @@ void communicateWithTelegram() {
           }
           else if (bot.messages[i].text == "/help") {
             bot.sendMessage(bot.messages[i].chat_id, "== Supported commands: ==\n/start: Start an active chat with the bot.\n/status: Request actual status report.\n/pressure OFF: Switch pressure pump OFF.\n/pressure ON: Set pressure pump to AUTO mode.\n/pressure AUTO: = /pressure ON");
-            SWWatchdog.clear();
+            softwareWatchdog.clear();
             bot.sendMessage(bot.messages[i].chat_id, "/filling OFF: Switch filling pump OFF.\n/filling ALL: Set filling pump to AUTO+MANUAL mode.\n/filling A+M: = /filling ALL\n/filling AUTO: Set filling pump to AUTO ONLY mode.\n/filling A: = /filling AUTO\n/filling MANUAL: Set filling pump to MANUAL ONLY mode.\n/filling M: = /filling MANUAL");
-            //            SWWatchdog.clear();
+            //            softwareWatchdog.clear();
             //            bot.sendMessage(bot.messages[i].chat_id, "");
-            SWWatchdog.clear();
+            softwareWatchdog.clear();
             bot.sendMessage(bot.messages[i].chat_id, "/minvolume XXX: Set lowest water level to XXX litres.\n/maxvolume XXX: Set highest water level to XXX litres.\n/pause: Force system into pause mode.\n/resume: Resume system from pause mode or from error.");
-            SWWatchdog.clear();
+            softwareWatchdog.clear();
             bot.sendMessage(bot.messages[i].chat_id, "/autoreset ON: Set autoReset mode to ON.\n/autoreset OFF: Set autoReset mode to OFF.\n/reset: Force system to reset.\n== End of list ==");
           }
           else {
@@ -2047,7 +2045,7 @@ void communicateWithTelegram() {
       Serial.println(F(" === communicateWithTelegram point 3: Telegram restart done..."));
     }
   }
-  SWWatchdog.clear();
+  softwareWatchdog.clear();
   if (commands.debugLevel > 2) Serial.println(F(" === communicateWithTelegram point 4: end of Telegram communication..."));
 }
 
@@ -2068,7 +2066,7 @@ void checkForResetConditions() {
 
 
 void takeActionsPerParams() {
-  SWWatchdog.clear();
+  softwareWatchdog.clear();
   if (commands.debugLevel > 1) Serial.println(F(" === takeActionsPerParams started ==="));
   //  if (commands.debugLevel > 2) Serial.println(F(" === takeActionsPerParams point 1 - pause/resume, buttons check, pump modes... ==="));
   checkForResetConditions();
@@ -2088,19 +2086,19 @@ void takeActionsPerParams() {
   }
   if (selectorButtonCode && selectorButtonMenu || (millis() - menuTimer < 50)) {
     UserMenuFunction();
-    SWWatchdog.clear();
+    softwareWatchdog.clear();
     selectorButtonCode = false;
   }
   if ((commands.fillingMode != 1) && (commands.fillingMode != 3)) manualButtonCode = false;
   params.currentManualFilling = (!commands.forcePause && manualButtonCode && ((commands.fillingMode == 1) || (commands.fillingMode == 3)));
   params.currentPressure = (!commands.forcePause && commands.pressureMode && (params.waterVolume >= presssureMinWaterVolume)); // If water level in tank is too low or if some errors, pressure pump forbidden
   displayCurrentStatus();
-  SWWatchdog.clear();
+  softwareWatchdog.clear();
 }
 
 
 void executeChecksAndCommands() {
-  SWWatchdog.clear();
+  softwareWatchdog.clear();
   if (commands.debugLevel > 1) Serial.println(F(" === executeChecksAndCommands started ==="));
   if (commands.debugLevel > 2) Serial.println(F(" === executeChecksAndCommands point 1 - check for alarms... ==="));
   CheckForAlarms();
@@ -2110,7 +2108,7 @@ void executeChecksAndCommands() {
   if (!params.currentManualFilling && !params.currentAutoFilling) FillingPumpOFFAction(); // Stop/maintain non-active filling pump
   digitalWrite (waterDrawPump, params.currentPressure); // Actuate pressure pump state
   if (commands.debugLevel > 2) Serial.println(F(" === executeChecksAndCommands point 3 - end. ==="));
-  SWWatchdog.clear();
+  softwareWatchdog.clear();
 }
 
 
@@ -2119,13 +2117,11 @@ void setup() {
   Serial.begin(9600); // opens serial port, sets data rate to 9600 bps
   delay (2000); // Wait 2 seconds
   Serial.println(F("System started."));
-  // Init SWWatchdog timer
-  if (commands.debugLevel) Serial.println (F("Enabling SWWatchdog timer."));
-  SWWatchdog.attachShutdown(myshutdown);
-  SWWatchdog.setup(WDT_SOFTCYCLE1M);  // initialize WDT-softcounter refesh cycle on 32sec interval
-  SWWatchdog.clear();
-  //  if (commands.debugLevel) Serial.print (F("Enabling SWWatchdog timer. Milliseconds left until reset: "));
-  //  Serial.println (SWWatchdog.enable(SWWatchdogRestartTime * 1000)); // Set the SWWatchdog timer to SWWatchdogRestartTime seconds
+  // Init softwareWatchdog timer
+  if (commands.debugLevel) Serial.println (F("Enabling watchdog timer for 1 minute interval..."));
+  softwareWatchdog.attachShutdown(myshutdown);
+  softwareWatchdog.setup(WDT_SOFTCYCLE1M);  // initialize WDT-softcounter refesh cycle on 1 minute interval
+  softwareWatchdog.clear();
   // Init pins and pin interrupts
   pinMode(fillingPump, OUTPUT);
   pinMode(waterDrawPump, OUTPUT);
@@ -2163,34 +2159,34 @@ void setup() {
   // Init LD sensor
   snprintf_P(displayLineString[2], sizeof(displayLineString[2]), PSTR("LD sensor...        "));
   displayLines();
-  SWWatchdog.clear();
+  softwareWatchdog.clear();
   initLaserDistanceSensor ();
-  SWWatchdog.clear();
+  softwareWatchdog.clear();
   snprintf(displayLineString[2], sizeof(displayLineString[2]), initActionResult);
   // Init water temperature sensor
   snprintf_P(displayLineString[3], sizeof(displayLineString[3]), PSTR("Wtmp sensor...      "));
   displayLines();
-  SWWatchdog.clear();
+  softwareWatchdog.clear();
   initWaterTemperatureSensor ();
-  SWWatchdog.clear();
+  softwareWatchdog.clear();
   snprintf(displayLineString[3], sizeof(displayLineString[3]), initActionResult);
   displayLines();
   scrollDisplayUp();
   // Init ambient temperature and humidity sensors
   snprintf_P(displayLineString[3], sizeof(displayLineString[3]), PSTR("Atmp sensor...      "));
   displayLines();
-  SWWatchdog.clear();
+  softwareWatchdog.clear();
   initAmbientTemperatureSensors ();
-  SWWatchdog.clear();
+  softwareWatchdog.clear();
   snprintf(displayLineString[3], sizeof(displayLineString[3]), initActionResult);
   displayLines();
   scrollDisplayUp();
   // Init AC current sensor
   snprintf_P(displayLineString[3], sizeof(displayLineString[3]), PSTR("AC current snsr...   "));
   displayLines();
-  SWWatchdog.clear();
+  softwareWatchdog.clear();
   initEmonCurrentSensor();
-  SWWatchdog.clear();
+  softwareWatchdog.clear();
   snprintf(displayLineString[3], sizeof(displayLineString[3]), initActionResult);
   displayLines();
   scrollDisplayUp();
@@ -2198,7 +2194,7 @@ void setup() {
   snprintf_P(displayLineString[3], sizeof(displayLineString[3]), PSTR("WiFi connect...     "));
   displayLines();
   connectToWiFi(); // Try to connect to WiFi
-  SWWatchdog.clear();
+  softwareWatchdog.clear();
   // Init Real Time Clock
   rtc.begin();
   if (networkID != -1) getEpochFromInternet();
@@ -2217,7 +2213,7 @@ void setup() {
   snprintf_P(displayLineString[3], sizeof(displayLineString[3]), PSTR("Telegram init...    "));
   displayLines();
   initTelegramBotConfiguration ();
-  SWWatchdog.clear();
+  softwareWatchdog.clear();
   snprintf(displayLineString[3], sizeof(displayLineString[3]), initActionResult);
   displayLines();
   // Init general timers
@@ -2230,7 +2226,7 @@ void setup() {
 
 void loop() {
   if (commands.debugLevel) Serial.println(F("== Point 1 - General actions... =="));
-  SWWatchdog.clear(); // If this function is not called within SWWatchdogRestartTime seconds the board will reset itself
+  softwareWatchdog.clear(); // If this function is not called within 1 minute, the controller will reset itself
   doorSwitchFunction();
   TimeElapsedFunction();
   if ((millis() - displayDimTimer) >= (displayDimPeriod * 1000) && (displayDimPeriod != 0)) lcd.noBacklight(); else lcd.backlight();
