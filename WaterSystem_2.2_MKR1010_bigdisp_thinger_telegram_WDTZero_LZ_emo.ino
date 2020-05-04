@@ -7,6 +7,22 @@
 //Connects to WiFi and provides telemetry via Thinger IoT cloud and Telegram bot messages.
 //Licensed under Creative Commons.
 
+/* Contents of arduino_secrets.h tab should be as follows:
+const char* SECRET_KNOWN_SSID[] = {"WiFiNetwork1", "WiFiNetwork2", "WiFiNetwork3", "WiFiNetwork4", "WiFiNetwork5"}; // List of known WiFi networks - could contain any number of networks
+const char* SECRET_KNOWN_PASSWORD[] = {"WiFiPassword1", "WiFiPassword2", "WiFiPassword3", "WiFiPassword4", "WiFiPassword5"}; // Passwords of the known networks - the number of elements should match the number of known WiFi networks
+const int   SECRET_KNOWN_SSID_COUNT = sizeof(SECRET_KNOWN_SSID) / sizeof(SECRET_KNOWN_SSID[0]); // number of known networks is calculated
+
+#define SECRET_BOT_TOKEN "YourTelegramBotChatToken"  // Your Telegram Bot Chat Token
+#define SECRET_BOT_CHATID "YourBotChatID"  // Your Bot Chat ID number
+
+#define SECRET_THINGER_USERNAME "YourThingerUsername"
+#define SECRET_THINGER_DEVICE_ID "YourThingerDeviceID"
+#define SECRET_THINGER_DEVICE_CREDENTIAL "YourThingerDeviceCredential"
+*/
+
+
+
+
 #undef min                        // Corrects a bug of some libraries with MKR 1010
 #undef max                        // Corrects a bug of some libraries with MKR 1010
 #include "arduino_secrets.h"      // Arduino_secrets library - used for secret communication credentials
