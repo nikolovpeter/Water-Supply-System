@@ -8,16 +8,16 @@
 //Licensed under Creative Commons.
 
 /* Contents of arduino_secrets.h tab should be as follows:
-const char* SECRET_KNOWN_SSID[] = {"WiFiNetwork1", "WiFiNetwork2", "WiFiNetwork3", "WiFiNetwork4", "WiFiNetwork5"}; // List of known WiFi networks - could contain any number of networks
-const char* SECRET_KNOWN_PASSWORD[] = {"WiFiPassword1", "WiFiPassword2", "WiFiPassword3", "WiFiPassword4", "WiFiPassword5"}; // Passwords of the known networks - the number of elements should match the number of known WiFi networks
-const int   SECRET_KNOWN_SSID_COUNT = sizeof(SECRET_KNOWN_SSID) / sizeof(SECRET_KNOWN_SSID[0]); // number of known networks is calculated
+  const char* SECRET_KNOWN_SSID[] = {"WiFiNetwork1", "WiFiNetwork2", "WiFiNetwork3", "WiFiNetwork4", "WiFiNetwork5"}; // List of known WiFi networks - could contain any number of networks
+  const char* SECRET_KNOWN_PASSWORD[] = {"WiFiPassword1", "WiFiPassword2", "WiFiPassword3", "WiFiPassword4", "WiFiPassword5"}; // Passwords of the known networks - the number of elements should match the number of known WiFi networks
+  const int   SECRET_KNOWN_SSID_COUNT = sizeof(SECRET_KNOWN_SSID) / sizeof(SECRET_KNOWN_SSID[0]); // number of known networks is calculated
 
-#define SECRET_BOT_TOKEN "YourTelegramBotChatToken"  // Your Telegram Bot Chat Token
-#define SECRET_BOT_CHATID "YourBotChatID"  // Your Bot Chat ID number
+  #define SECRET_BOT_TOKEN "YourTelegramBotChatToken"  // Your Telegram Bot Chat Token
+  #define SECRET_BOT_CHATID "YourBotChatID"  // Your Bot Chat ID number
 
-#define SECRET_THINGER_USERNAME "YourThingerUsername"
-#define SECRET_THINGER_DEVICE_ID "YourThingerDeviceID"
-#define SECRET_THINGER_DEVICE_CREDENTIAL "YourThingerDeviceCredential"
+  #define SECRET_THINGER_USERNAME "YourThingerUsername"
+  #define SECRET_THINGER_DEVICE_ID "YourThingerDeviceID"
+  #define SECRET_THINGER_DEVICE_CREDENTIAL "YourThingerDeviceCredential"
 */
 
 
@@ -105,8 +105,10 @@ struct RO_PARAMS_DATA_STRUCTURE {
   uint8_t currentAutoFilling;
   uint8_t currentManualFilling;
   uint8_t currentPressure;
-  uint8_t fillingPumpONDuration; // Number of minutes the filling pump worked during the last totalFillCyclePeriod minutes
-  uint8_t lastFillDuration; // in minutes
+  uint16_t fillingPumpONDuration; // Number of minutes the filling pump worked during the last totalFillCyclePeriod minutes
+  uint16_t currentFillDuration; // in minutes
+  uint16_t lastFillDuration; // in minutes
+  uint8_t fillingPumpHold = true;
   int16_t waterVolume;
   int8_t currentWaterFlow;
   int8_t waterTemperature;
@@ -194,7 +196,9 @@ const unsigned long menuTimerTimeout = 30000; // Menu timer timeout in milliseco
 
 
 // Filling and pump variables declaration
-const byte pauseBetweenFills = 0; // in minutes: 1 minute - to be changed to 30 minutes
+const int presssureMinWaterVolume = 30; // Lower water level limit to start refilling
+const int waterVolumeLimit = 290; // Water level limit to count as overfilling
+const byte pauseBetweenFills = 2; // Minimum pause between fills in minutes
 const byte singleFillMaxDuration = 10; // Maximum allowed duration of a single filling cycle in minutes
 const byte totalFillMaxDuration = 30;  // Maximum allowed duration of all filling cycles in minutes within the last totalFillCyclePeriod minutes (by default in the last 120 minutes)
 const byte totalFillCyclePeriod = 120; // In minutes - cycle period to control maximum allowed filling duration (cannot be more than the bits in historyByMinutes[]) - 2 hours
@@ -204,9 +208,7 @@ byte historyArrayBitPointer;
 unsigned long historyByMinutes[4] = {0, 0, 0, 0}; // Array to store filling pump status by minutes for the last 2 hours (128 minutes)
 unsigned long lastFillStartTime;
 unsigned long lastFillStopTime;
-unsigned long fillStartPausedDuration;
-const byte presssureMinWaterVolume = 30; // Lower water level limit to start refilling
-const int waterVolumeLimit = 290; // Water level limit to count as overfilling
+//unsigned long fillStartPausedDuration;
 
 
 
@@ -340,7 +342,7 @@ void TimeElapsedFunction() { // Time counter
 
 
 void generateStatusStrings() {
-  snprintf_P(lastSystemStatus, sizeof(lastSystemStatus), PSTR("== Water volume: %d L;\nWater flow: %d L/min;\nWater temperature: %d°C;\nLast fill duration: %d min;\nFilling pump uptime: %d min/2h. =="), params.waterVolume, params.currentWaterFlow, params.waterTemperature, params.lastFillDuration, params.fillingPumpONDuration);
+  snprintf_P(lastSystemStatus, sizeof(lastSystemStatus), PSTR("== Water volume: %d L;\nWater flow: %d L/min;\nWater temperature: %d°C;\nCurrent fill duration: %d min;\nLast fill duration: %d min;\nFilling pump uptime: %d min/2h. =="), params.waterVolume, params.currentWaterFlow, params.waterTemperature, params.currentFillDuration, params.lastFillDuration, params.fillingPumpONDuration);
   snprintf_P(lastEnvironmentStatus, sizeof(lastEnvironmentStatus), PSTR("== Amb. temp. 1 (basement): %d°C; Amb. hum. 1: %d%%;\nAmb. temp. 2 (house): %d°C; Amb. hum. 2: %d%%. =="), params.ambientTemperature1, params.ambientHumidity1, params.ambientTemperature2, params.ambientHumidity2);
   snprintf_P(lastOperationStatus, sizeof(lastOperationStatus), PSTR("== Pressure pump status: %d;\nCurrent auto filling: %d;\nCurrent manual filling: %d;\nController uptime: %d min;\nPaused state: %d;\nMannual override mode: %d;\nAuto reset mode: %d;\nDoor switch state: %d;\nFault code: %d. =="), params.currentPressure, params.currentAutoFilling, params.currentManualFilling, params.controllerUptime, params.pausedState, commands.forceNoChecks, commands.autoReset, params.doorSwitchState, params.faultCode);
   snprintf_P(lastControlStatus, sizeof(lastControlStatus), PSTR("== Pressure mode: %d; Filling mode: %d;\nForce pause: %d; Force reset: %d;\nminWaterVolume: %d L; maxWaterVolume: %d L. =="), commands.pressureMode, commands.fillingMode, commands.forcePause, commands.forceReset, commands.minWaterVolume, commands.maxWaterVolume);
@@ -698,13 +700,9 @@ void displayCurrentStatus() {
         lcd.print("-");
         break;
       case 3: // Display cycle 3
-        lcd.write(1); // Display back-slash
+        lcd.write(1); // Display back-slash as a defined symbol as it is not included in the display's code table
         break;
     }
-    //    if (!params.currentAutoFilling && !params.currentManualFilling && !params.pausedState && !params.faultCode && (currentDisplayCycle == 3)) {
-    //      lcd.setCursor(0, 2);
-    //      lcd.write(1);
-    //    }
     currentDisplayCycle++;
     if (currentDisplayCycle > 3) currentDisplayCycle = 0;
   }
@@ -775,11 +773,14 @@ void displayPressureLine () { // char displayLineString[0][21];     //Pres:AUTO 
 
 
 void displayFlowDurationLine () {  // char displayLineString[3][21];     // mFl:35L/min Dur:38'  or  FaultDescription or Submenu Item
-  char temporaryString [17] = "";
-  strcpy_P(displayLineString[2], PSTR(" Flow"));
-  if (commands.forceNoChecks) strcat(displayLineString[2], "!"); else strcat(displayLineString[2], ":");
-  unsigned int currentFillDuration = (millis() - lastFillStartTime - (pausedDuration - fillStartPausedDuration)) / 60000;
-  snprintf_P(temporaryString, sizeof(temporaryString), PSTR("%dL/min;Dur:%d' "), params.currentWaterFlow,  currentFillDuration);
+  char temporaryString [16] = "";
+  //                                                                                               01234567890123456789
+  if (params.fillingPumpHold) snprintf_P(displayLineString[2], sizeof(displayLineString[2]), PSTR(" Waiting to fill..."));
+  else {
+    strcpy_P(displayLineString[2], PSTR(" Flow"));
+    if (commands.forceNoChecks) strcat(displayLineString[2], "!"); else strcat(displayLineString[2], ":");
+    snprintf_P(temporaryString, sizeof(temporaryString), PSTR("%dL/min;Dur:%d' "), params.currentWaterFlow,  params.currentFillDuration);
+  }
   strcat(displayLineString[2], temporaryString);
   displayLineString[2][20] = 0;
 }
@@ -1190,23 +1191,25 @@ void readAmbientTemperatureFunction() { // Measure ambient temperatures and humi
 
 
 void FillingPumpONAction() { // Start filling pump
+  TimeElapsedFunction();
   if (digitalRead (fillingPump) == LOW) {
-    if ((millis() - lastFillStopTime) < (pauseBetweenFills * 60000)) return; // Check pump worked recently and wait
+    if (params.fillingPumpHold) return;  // Check if pump worked recently or worked for too long in the last 2 hours, and return
     digitalWrite (fillingPump, HIGH); // Start filling pump
+    params.fillingPumpHold = false;
     lastFillStartTime = millis();
     noFlowTimer = millis();
-    fillStartPausedDuration = pausedDuration;
-    Serial.print(F("    Filling pump started: currentManualFilling = "));
+    Serial.print(F("==> Filling pump started: currentManualFilling = "));
     Serial.print(params.currentManualFilling);
     Serial.print(F(" and currentAutoFilling = "));
     Serial.println(params.currentAutoFilling);
   }
   else {
+    params.currentFillDuration = (millis() - lastFillStartTime) / 60000;
     if (params.fillingPumpONDuration >= totalFillMaxDuration) { // Check if pump working for too long and wait if needed
+      params.fillingPumpHold = true;
       FillingPumpOFFAction();
-    };
+    }
   }
-  TimeElapsedFunction();
 }
 
 
@@ -1217,9 +1220,11 @@ void FillingPumpOFFAction() { // Stop filling pump
     lastFillStopTime = millis ();    // Record time when filling pump stopped
     params.currentManualFilling = false;
     params.currentAutoFilling = false;
-    params.lastFillDuration = (millis() - lastFillStartTime - (pausedDuration - fillStartPausedDuration)) / 60000;
+    params.lastFillDuration = (millis() - lastFillStartTime) / 60000;
+    params.currentFillDuration = 0;
     params.currentWaterFlow = 0;
-    Serial.print(F("    Filling pump stopped: lastFillDuration = "));
+    params.fillingPumpHold = true;
+    Serial.print(F("==> Filling pump stopped: lastFillDuration = "));
     Serial.print(params.lastFillDuration);
     Serial.print(F(" min and fillingPumpONDuration = "));
     Serial.print(params.fillingPumpONDuration);
@@ -1265,8 +1270,15 @@ void CheckForAlarms() { // Check for filling alarms
     params.faultCode &= 0b11011111; // Clear bit 5 of faultCode = no overfill
   }
   if (digitalRead (fillingPump) == HIGH) {
-    if (params.lastFillDuration >= (singleFillMaxDuration )) {
-      params.faultCode |= 0b01000000; // Set bit 6 of faultCode = Filling too long, i.e. continuing for more than singleFillMaxDuration minutes
+    if (params.currentFillDuration >= (singleFillMaxDuration )) {
+      if (params.currentAutoFilling) {
+        params.faultCode |= 0b01000000; // Set bit 6 of faultCode = Filling too long, i.e. continuing for more than singleFillMaxDuration minutes
+        params.currentAutoFilling = false;
+      }
+      else {
+        params.currentManualFilling = false;
+        manualButtonCode = false;
+      }
     }
     else {
       params.faultCode &= 0b10111111; // Clear bit 6 of faultCode = filling not too long
@@ -1287,9 +1299,13 @@ void CheckForAlarms() { // Check for filling alarms
     manualButtonCode = false;
     params.currentManualFilling = false;
   };
+  if ((millis() - lastFillStopTime) < (pauseBetweenFills * 60000) || (params.fillingPumpONDuration >= totalFillMaxDuration)) { // Check if pump worked recently or worked for too long in the last 2 hours, and return
+    params.fillingPumpHold = true; // Check if filling pump worked recently and wait
+  }
+  else params.fillingPumpHold = false;
   if (commands.debugLevel > 2) Serial.println(F("  ==== CheckForAlarms point 6 - check if water tank needs refilling and set flag if necessary... ===="));
   if (!params.pausedState && !params.currentManualFilling && ((commands.fillingMode == 1) || (commands.fillingMode == 2))) { // Check if auto filling is allowed
-    if ((params.waterVolume < commands.minWaterVolume) && (params.waterVolume > 0)) { // Check if water level low and needs refilling
+    if ((params.waterVolume < commands.minWaterVolume) && (params.waterVolume > 0) ) { // Check if water level low and needs refilling
       params.currentAutoFilling = true; // Water level low - initiate auto refill
       Serial.println(F("   ==== Water level low - auto refilling. ====")); //temp
     }
@@ -1329,7 +1345,7 @@ void resumeFromErrorFunction() { // Recent error cleared - resume and notify
 
 
 void ErrorFunction() { // Error encountered - stop all processes and show fault code
-  if (params.faultCode != lastFaultCode) {
+  if (params.faultCode != lastFaultCode) { // First occurance of this error?
     displayDimTimer = millis();
     lcd.backlight();
     if (lastFaultCode == 0) {
@@ -1377,7 +1393,6 @@ void ErrorFunction() { // Error encountered - stop all processes and show fault 
     for (byte i = 0; i < (8 - strlen(binaryString)); i++) strcat (binaryfaultCodeString, "0");
     strcat (binaryfaultCodeString, binaryString);
     displayCurrentStatus();
-    //    errorTelegramNotification ();
   }
   // Take actions according to the error
   if (faultFillingOff) commands.fillingMode = 0; // Check second character of fault description and change filling mode if required
@@ -1389,15 +1404,13 @@ void ErrorFunction() { // Error encountered - stop all processes and show fault 
   Serial.print(binaryfaultCodeString);
   Serial.print(F(": "));
   Serial.println(faultDescription);
-  if (params.faultCode != lastFaultCode) {
+  if (params.faultCode != lastFaultCode) { // First occurance of this error?
     errorTelegramNotification ();
     lastFaultCode = params.faultCode;
   }
   selectorButtonCode = false;
   manualButtonCode = false;
 }
-
-
 
 /* Fault codes description:
   ======= Fault Codes ====================
@@ -1412,16 +1425,15 @@ void ErrorFunction() { // Error encountered - stop all processes and show fault 
   ========================================
 */
 /*
-  const String faultDescriptionArray[8][4] {
-  {"Water thermometer error.", "P", "0", "P"}, = 1
-  {"Ambient thermometer error.", "P", "0", "P"}, = 2
-  {"Laser distance sensor error. F. pump OFF.", "P", "F", "P"}, = 4
-  {"No water flow while filling. F. pump OFF.", "P", "0", "0"}, = 8
-  {"Too cold - risk of freezing! All pumps OFF.", "0", "F", "P"}, = 16
-  {"Overfill! F. pump OFF.", "P", "F", "0"}, = 32
-  {"Filling longer than allowed time. F. pump OFF.", "P", "0", "0"}, = 64
-  {"Unknown error.", "P", "F", "P"} = 128
-  };
+  Fault code descriptions:
+  1: Water thermometer error.
+  2: Ambient thermometer error.
+  4: Laser distance sensor error.
+  8: No water flow while filling.
+  16: Too cold - risk of freezing!
+  32: Overfill!
+  64: Filling longer than allowed time.
+  128: General/Unknown error.
 */
 
 
@@ -2104,8 +2116,8 @@ void executeChecksAndCommands() {
   CheckForAlarms();
   if (commands.debugLevel > 2) Serial.println(F(" === executeChecksAndCommands point 2 - execute pump actions... ==="));
   digitalWrite(currentManualFillingLED, params.currentManualFilling);
-  if (params.currentManualFilling || params.currentAutoFilling) FillingPumpONAction(); // Start/maintain active filling pump
-  if (!params.currentManualFilling && !params.currentAutoFilling) FillingPumpOFFAction(); // Stop/maintain non-active filling pump
+  if ((params.currentManualFilling || params.currentAutoFilling) && !params.fillingPumpHold) FillingPumpONAction(); // Start/maintain active filling pump
+  if ((!params.currentManualFilling && !params.currentAutoFilling) || params.fillingPumpHold) FillingPumpOFFAction(); // Stop/maintain non-active filling pump
   digitalWrite (waterDrawPump, params.currentPressure); // Actuate pressure pump state
   if (commands.debugLevel > 2) Serial.println(F(" === executeChecksAndCommands point 3 - end. ==="));
   softwareWatchdog.clear();
