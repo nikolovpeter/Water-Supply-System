@@ -1,38 +1,39 @@
 
 //Water Supply System v.2.2.
 //Programer: Peter Nikolov.
-//Suitable for MKR1010 but could be re-worked for Uno/Nano by changing pin assignments.
-//A Water Supply System controller that controls and displays the level of water in the tank, and controls a pump, filling the tank, and a pressure pump that draws water from the tank.
-//Using Dallas OneWire thermometer and rotary encoder for menu selector, 4 relays control, opto-isolator adviceable.
+//Designed for MKR1010 but could be easily re-worked for MKR1000 by commenting/uncommenting some code.
+//A Water Supply System controller that controls and displays the level of water in a tank, and controls a pump, filling the tank from a well, and a pressure pump that draws water from the tank.
+//Using VL53L1X laser distance sensor via I2C, Dallas temperature sensor via OneWire, 2xDHT11 temperature/humidity sensors, water flow sensor, SCT:013 AC current sensor, 20x4 display via I2C and a rotary encoder for user interface, 4 relays control with opto-isolator adviceable.
+//Connects to WiFi and provides telemetry via Thinger IoT cloud and Telegram bot messages.
 //Licensed under Creative Commons.
-#undef min
-#undef max
-#include "arduino_secrets.h"
 
-// ArduinoJson 5
-#include <ArduinoJson.h>
-#include <ArduinoJson.hpp>
+#undef min                        // Corrects a bug of some libraries with MKR 1010
+#undef max                        // Corrects a bug of some libraries with MKR 1010
+#include "arduino_secrets.h"      // Arduino_secrets library - used for secret communication credentials
 
-#include <Wire.h>
-//#include <rgb_lcd.h>
-//#include <WiFiSSLClient.h>
-//#include <WiFi101.h>
-#include <WiFiNINA.h>
-//#include <TelegramBot.h>
-#include <UniversalTelegramBot.h>
-//#include <ThingerWifi101.h>
-#include <ThingerWiFiNINA.h>
-#include <LiquidCrystal_I2C.h>
-#include <OneWire.h>
+// ArduinoJson 5 should be used
+#include <ArduinoJson.h>          // JSON 5 libraries - required for Telegram communication
+#include <ArduinoJson.hpp>        // JSON 5 libraries - required for Telegram communication
+
+#include <Wire.h>                 // I2C bus - used for the display and VL53L1X laser distance sensor
+//#include <rgb_lcd.h>            // This would be needed for another kind of display
+#include <LiquidCrystal_I2C.h>    // This is needed for 20x4 display via I2C
+//#include <WiFiSSLClient.h>      // Needed for MKR 1000
+//#include <WiFi101.h>            // Needed for MKR 1000
+#include <WiFiNINA.h>             // Needed for MKR 1010
+//#include <TelegramBot.h>        // Does not work correctly with MKR 1010 but works good with MKR 1000, if used some code will need to be reworked in the Telegram communications parts
+#include <UniversalTelegramBot.h> // Works correctly with MKR 1010, although communication is slow
+//#include <ThingerWifi101.h>     // Needed for MKR 1000
+#include <ThingerWiFiNINA.h>      // Needed for MKR 1010
+#include <OneWire.h>              // Needed for OneWire bus (used by the Dallas water temperature sensor)
 #include <DallasTemperature.h>    // 1-Wire temperature sensor
 #include <VL53L1X.h>              // I2C laser distance sensor
 #include <DHT.h>                  // DHT-11 temperature and humidity sensor
 #include <avr/pgmspace.h>
-//#include <Adafruit_SleepyDog.h>
-#include <WDTZero.h>
-#include <SPI.h>
-#include <RTCZero.h>
-#include "EmonLib.h"                   // Include Emon Library
+#include <WDTZero.h>              // Software watchdog timer capable of more than 16 seconds watchdog time
+#include <SPI.h>                  // SPI interface (needed for WiFi)
+#include <RTCZero.h>              // Real Time Clock
+#include "EmonLib.h"              // Emon Library - needed for AC current measurement
 
 
 //Pin assignment
@@ -70,13 +71,12 @@ OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature waterThermometer(&oneWire);
 DeviceAddress waterThermometerAddress;
 VL53L1X laserSensor;
-//SFEVL53L1X laserSensor;
 DHT ambientThermometer1(AmbientThermometer1Pin, DHTTYPE);
 DHT ambientThermometer2(AmbientThermometer2Pin, DHTTYPE);
-//ThingerWifi101 thing(SECRET_THINGER_USERNAME, SECRET_THINGER_DEVICE_ID, SECRET_THINGER_DEVICE_CREDENTIAL);
-ThingerWiFiNINA thing(SECRET_THINGER_USERNAME, SECRET_THINGER_DEVICE_ID, SECRET_THINGER_DEVICE_CREDENTIAL);
+//ThingerWifi101 thing(SECRET_THINGER_USERNAME, SECRET_THINGER_DEVICE_ID, SECRET_THINGER_DEVICE_CREDENTIAL); // Needed for MKR 1000
+ThingerWiFiNINA thing(SECRET_THINGER_USERNAME, SECRET_THINGER_DEVICE_ID, SECRET_THINGER_DEVICE_CREDENTIAL); // Needed for MKR 1010
 WiFiSSLClient wifisslclient;
-//TelegramBot bot (SECRET_BOT_TOKEN, wifisslclient);
+//TelegramBot bot (SECRET_BOT_TOKEN, wifisslclient); // Needed for MKR 1000 if TelegramBot.h library is used
 UniversalTelegramBot bot (SECRET_BOT_TOKEN, wifisslclient);
 WDTZero SWWatchdog; // Define WDT
 EnergyMonitor emon1;                   // Create an instance of EnergyMonitor class
@@ -144,7 +144,7 @@ volatile unsigned long displayDimTimer;
 char displayLineString [4][21];
 char initActionResult[21];
 // make a custom character:
-uint8_t backslash[8] = {
+uint8_t backslash[8] = { // Definition of back-slash symbol as it is not included in the display's code table
   0b00000,
   0b10000,
   0b01000,
@@ -195,10 +195,8 @@ const int waterVolumeLimit = 290; // Water level limit to count as overfilling
 
 
 // Timer and clock variables declaration
-
 unsigned long ntemporary;
 unsigned long currentMinuteTimer;
-//const unsigned int SWWatchdogRestartTime = 120; // SWWatchdog restart time in seconds; the system will default to maximum 16 seconds, if a larger value is given
 const int GMT = 3; // Timezone offset from GMT
 
 
@@ -209,7 +207,7 @@ const int tankHeight = 120; // Tank height in centimeters
 byte laserDistanceArrayIndex = 0;
 byte laserDistanceArraySize = 30;
 int laserDistanceArray[30]; // Array of laser distance measurements in cm, size should be = laserDistanceArraySize
-int laserDistance_mtbs = 300; //mean time between water level measurements in milliseconds
+int laserDistance_mtbs = 300; //mean time between water level (laser distance) measurements in milliseconds
 unsigned long laserDistance_lasttime = 0;   //last time laser distance has been measured
 
 
@@ -222,9 +220,9 @@ unsigned long noFlowTimer = 0;
 // Temperature monitoring variables declaration
 const int freezeAlarmLimit = 2; // Lowest temperature limit to count for freezing alarm
 int waterTemperature_mtbs = 500; //mean time between water temperature measurements in milliseconds
-unsigned long waterTemperature_lasttime = 0;   //last time laser distance has been measured
+unsigned long waterTemperature_lasttime = 0;   //last time water temperature has been measured
 int ambientTemperature_mtbs = 700; //mean time between ambient temperature and humidity measurements in milliseconds
-unsigned long ambientTemperature_lasttime = 0;   //last time laser distance has been measured
+unsigned long ambientTemperature_lasttime = 0;   //last time ambient temperature and humidity have been measured
 bool ambientTemperatureError1 = false;
 bool ambientTemperatureError2 = false;
 
@@ -241,6 +239,7 @@ volatile unsigned long pausedDuration = 0; // Record how long the program was pa
 
 
 
+
 // WiFi variables and constants
 byte networkID;
 boolean wifiFound = false;
@@ -253,7 +252,7 @@ bool InternetConnectionAlive = false;
 // Telegram variables and constants
 bool localFeedback = true;
 int Bot_mtbs = 10000; //mean time between scan messages in milliseconds
-unsigned long Bot_sleeptime = 60000; // time to put bot to sleep by increasing Bot_mtbs
+unsigned long Bot_sleeptime = 60000; // time in milliseconds to put Telegram bot to sleep by increasing Bot_mtbs
 unsigned long Bot_lasttime;   //last time messages' scan has been done
 unsigned long Bot_lastMessage;   //last time a message has been received
 bool TelegramConnectionAlive = false;
@@ -265,7 +264,7 @@ volatile bool newData = false;
 volatile unsigned long dataTransferTimer;
 bool ThingerConnectionAlive = false;
 int Thinger_mtbs = 1000; //mean time between scan messages in milliseconds
-unsigned long Thinger_sleeptime = 60000; // time to put Thinger to sleep by increasing Thinger_mtbs
+unsigned long Thinger_sleeptime = 60000; // time in milliseconds to put Thinger to sleep by increasing Thinger_mtbs
 unsigned long Thinger_lasttime;   //last time messages' scan has been done
 unsigned long Thinger_lastMessage;   //last time a message has been received
 
@@ -283,7 +282,7 @@ char lastNetworkStatus [200];
 
 // Error reporting variables declaration
 const PROGMEM char faultDescriptionArray[8][22] {"Water t-sensor err.", "Amb. t-sensor err.", "LD sensor err.", "No Fpump water flow.", "Freezing risk!", "Overfill!", "Filling too long.", "General error."};
-const PROGMEM char faultActionArray[8][4] {"000", "000", "0FP", "0F0", "0FP", "PF0", "PF0", "PFP"};
+const PROGMEM char faultActionArray[8][4] {"000", "000", "0FP", "0F0", "0FP", "PF0", "PF0", "PFP"}; // First letter: force pause if P; second letter: forbid filling pump if F; third letter: forbid pressure pump if P
 byte lastFaultCode = 0;
 char binaryfaultCodeString[9];
 char faultDescription [280] = "";
@@ -654,13 +653,11 @@ void displayCurrentStatus() {
     displayPressureLine ();
     switch (currentDisplayCycle) { // Cycle display
       case 0: // Display cycle 0
-        if (params.pausedState) snprintf_P (displayLineString[2], sizeof(displayLineString[2]), PSTR("PAUSED: key->resume "));
-        else if (params.currentAutoFilling || params.currentManualFilling) displayFlowDurationLine(); else displayIdleAnimation();
+        if (params.currentAutoFilling || params.currentManualFilling) displayFlowDurationLine(); else displayIdleAnimation();
         displayAmbientLine();
         break;
       case 1: // Display cycle 1
-        if (params.pausedState) snprintf_P (displayLineString[2], sizeof(displayLineString[2]), PSTR("PAUSED: key->resume "));
-        else if (params.currentAutoFilling || params.currentManualFilling) displayFlowDurationLine(); else displayIdleAnimation();
+        if (params.currentAutoFilling || params.currentManualFilling) displayFlowDurationLine(); else displayIdleAnimation();
         displayAmbientLine();
         break;
       case 2: // Display cycle 2
@@ -691,7 +688,7 @@ void displayCurrentStatus() {
       }
     }
     displayLineString[3][20] = 0;
-    if (positionCounter < strlen(faultDescription)) positionCounter++; else positionCounter = 0;
+    if (positionCounter < (strlen(faultDescription) - 19)) positionCounter++; else positionCounter = 0;
     lcd.setCursor(0, 3);
     lcd.print (displayLineString[3]);
     currentDisplayCycleTimer2 = millis();
@@ -701,15 +698,20 @@ void displayCurrentStatus() {
 
 
 void displayFillingLine () { // char displayLineString[0][21];     //Fill:A+M nowOFF 200L
-  strcpy_P (displayLineString[0], PSTR("Fill"));
-  if (commands.forceNoChecks) strcat_P(displayLineString[0], PSTR("!")); else strcat_P(displayLineString[0], PSTR(":"));
-  strcat_P (displayLineString[0], fillingModeText [commands.fillingMode]);
-  if (!params.currentAutoFilling && !params.currentManualFilling) {
-    strcat_P(displayLineString[0], PSTR("_nowOFF"));
+  if (params.pausedState) {
+    snprintf_P (displayLineString[0], sizeof(displayLineString[0]), PSTR("NOW PAUSED:"));
   }
   else {
-    if (params.currentAutoFilling)   strcat_P(displayLineString[0], PSTR("_nowONa"));
-    if (params.currentManualFilling) strcat_P(displayLineString[0], PSTR("_nowONm"));
+    strcpy_P (displayLineString[0], PSTR("Fill"));
+    if (commands.forceNoChecks) strcat_P(displayLineString[0], PSTR("!")); else strcat_P(displayLineString[0], PSTR(":"));
+    strcat_P (displayLineString[0], fillingModeText [commands.fillingMode]);
+    if (!params.currentAutoFilling && !params.currentManualFilling) {
+      strcat_P(displayLineString[0], PSTR("_nowOFF"));
+    }
+    else {
+      if (params.currentAutoFilling)   strcat_P(displayLineString[0], PSTR("_nowONa"));
+      if (params.currentManualFilling) strcat_P(displayLineString[0], PSTR("_nowONm"));
+    }
   }
   while (strlen(displayLineString[0]) < 16) strcat (displayLineString[0], " ");
   char temporaryString [5] = "";
@@ -721,10 +723,16 @@ void displayFillingLine () { // char displayLineString[0][21];     //Fill:A+M no
 
 
 void displayPressureLine () { // char displayLineString[0][21];     //Pres:AUTO nowOFF 15o
-  strcpy_P (displayLineString[1], PSTR("Pres"));
-  if (commands.forceNoChecks) strcat_P(displayLineString[1], PSTR("!")); else strcat_P(displayLineString[1], PSTR(":"));
-  if (commands.pressureMode) strcat_P(displayLineString[1], PSTR(("AUTO"))); else strcat_P(displayLineString[1], PSTR("OFF"));
-  if (params.currentPressure) strcat_P(displayLineString[1], PSTR("_nowON")); else strcat_P(displayLineString[1], PSTR("_nowOFF"));
+  if (params.pausedState) {
+    //                                                                    01234567890123456789
+    snprintf_P (displayLineString[1], sizeof(displayLineString[1]), PSTR("Any key->resume"));
+  }
+  else {
+    strcpy_P (displayLineString[1], PSTR("Pres"));
+    if (commands.forceNoChecks) strcat_P(displayLineString[1], PSTR("!")); else strcat_P(displayLineString[1], PSTR(":"));
+    if (commands.pressureMode) strcat_P(displayLineString[1], PSTR(("AUTO"))); else strcat_P(displayLineString[1], PSTR("OFF"));
+    if (params.currentPressure) strcat_P(displayLineString[1], PSTR("_nowON")); else strcat_P(displayLineString[1], PSTR("_nowOFF"));
+  }
   while (strlen(displayLineString[1]) < 17) strcat (displayLineString[1], " ");
   char temporaryString [5] = "";
   snprintf_P(temporaryString, sizeof(temporaryString), PSTR("%2do\n"), params.waterTemperature);
@@ -772,7 +780,8 @@ void displayIdleAnimation () {  // char displayLineString[3][21];     // mFl:35L
       break;
     case 3:
       snprintf_P (displayLineString[2], sizeof(displayLineString[2]), PSTR(" "));
-      snprintf_P (timeElapsedString, sizeof(timeElapsedString), PSTR(" Time worked: %02d:%02d "), hours, minutes);
+      snprintf_P (timeElapsedString, sizeof(timeElapsedString), PSTR("Running for %dh %d'  "), hours, minutes);
+      //      snprintf_P (timeElapsedString, sizeof(timeElapsedString), PSTR(" Time worked: %02d:%02d "), hours, minutes);
       strcat (displayLineString[2], timeElapsedString);
       break;
   }
@@ -1269,26 +1278,26 @@ void CheckForAlarms() { // Check for filling alarms
   else params.currentAutoFilling = false;
   if (params.waterVolume > commands.maxWaterVolume) params.currentAutoFilling = false; // Turn off auto filling if tank is full enough
   if ((params.faultCode & 0b10010111) != 0) params.currentPressure = false; // If some errors, pressure pump forbidden
-  if (commands.debugLevel > 2) Serial.println(F("  ==== CheckForAlarms point 7 - call ErrorFunction if faultCode, or call noErrorFunction if faultCode just cleared... ===="));
+  if (commands.debugLevel > 2) Serial.println(F("  ==== CheckForAlarms point 7 - call ErrorFunction if faultCode, or call resumeFromErrorFunction if faultCode just cleared... ===="));
   if (params.faultCode != 0) ErrorFunction();
-  if (params.faultCode == 0 && lastFaultCode != 0) noErrorFunction();
+  if (params.faultCode == 0 && lastFaultCode != 0) resumeFromErrorFunction();
   if (commands.debugLevel > 2) Serial.println(F("  ==== CheckForAlarms point 8 - end. ===="));
 }
 
 
-void noErrorFunction() { // Recent error cleared - resume and notify
+void resumeFromErrorFunction() { // Recent error cleared - resume and notify
   strcpy (binaryfaultCodeString, "");
   strcpy (faultDescription, "All errors cleared - resuming...");
   Serial.println(faultDescription);
   lcd.clear();
   lcd.setCursor(0, 2);
-  //           01234567890123456789
   lcd.print(F("No errors - resuming"));
   tone (buzzer, 800, 150); // Buzz for 150 milliseconds with frequency 800 Hz
   delay (400);
   tone (buzzer, 800, 150); // Buzz for 150 milliseconds with frequency 800 Hz
   errorTelegramNotification();
-  commands = preErrorCommands;
+  commands.pressureMode = preErrorCommands.pressureMode;
+  commands.fillingMode = preErrorCommands.fillingMode;
   params.faultCode = 0; // Reset error code
   lastFaultCode = 0;
   lcd.clear();
@@ -1299,7 +1308,9 @@ void ErrorFunction() { // Error encountered - stop all processes and show fault 
   if (params.faultCode != lastFaultCode) {
     displayDimTimer = millis();
     lcd.backlight();
-    if (lastFaultCode == 0) preErrorCommands = commands;
+    if (lastFaultCode == 0) {
+      if (params.pausedState) preErrorCommands = prePauseCommands; else preErrorCommands = commands;
+    }
     //    lastFaultCode = params.faultCode;
     veryLongBeep();
     tone (buzzer, 600, 2000); // Buzz for 3 seconds with frequency 600 Hz
@@ -1420,7 +1431,7 @@ void PausedStateFunction() { // pausedState - stop all processes and raise pause
     tone (buzzer, 600, 500); // Buzz for 500 milliseconds with frequency 700 Hz
     Serial.println(F("Paused state started... ")); //temp
     stopTime = millis();
-    prePauseCommands = commands;
+    if (params.faultCode) prePauseCommands = preErrorCommands; else prePauseCommands = commands;
     StopAllFunction();
     params.currentAutoFilling = false;
     params.currentManualFilling = false;
@@ -1450,11 +1461,12 @@ void ResumeFunction() { // Resume from pause or error
   selectorButtonCode = false;
   manualButtonCode = false;
   pausedDuration = millis() - stopTime;
-  commands = prePauseCommands;
+  commands.pressureMode = prePauseCommands.pressureMode;
+  commands.fillingMode = prePauseCommands.fillingMode;
   params.faultCode = 0; // Reset error code
   commands.forcePause = false;
   lcd.clear();
-  if (params.faultCode) noErrorFunction();
+  if (params.faultCode) resumeFromErrorFunction();
 }
 
 
@@ -1839,26 +1851,28 @@ void initTelegramBotConfiguration() { // Telegram bot init
 void errorTelegramNotification () { // Telegram bot init
   getEpochFromInternet();
   bool botResult = false;
-  if (InternetConnectionAlive) {
+  if (InternetConnectionAlive && TelegramConnectionAlive) {
     SWWatchdog.clear();
     Serial.println (F("Starting Telegram bot ERROR notification..."));
     generateStatusStrings();
     int numNewMessages = bot.getUpdates(1);
     if (params.faultCode != 0) {
-      bot.sendMessage(SECRET_BOT_CHATID, "An ERROR has occurred:\n" + String (faultDescription));
+      bot.sendMessage(SECRET_BOT_CHATID, "ERROR notification:\n" + String (faultDescription));
     }
     else {
       bot.sendMessage(SECRET_BOT_CHATID, String (faultDescription));
     }
-    bot.sendMessage(SECRET_BOT_CHATID, "== Minutes worked: " + String(params.controllerUptime) + " ==" + "\n" + lastSystemStatus + "\n" + lastEnvironmentStatus);
-    SWWatchdog.clear();
-    bot.sendMessage(SECRET_BOT_CHATID, lastOperationStatus);
-    SWWatchdog.clear();
-    bot.sendMessage(SECRET_BOT_CHATID, "\n" + String(lastControlStatus) + "\n" + String(lastNetworkStatus) + "\n" + String(lastDateTimeStatus) + "\n== End of status ==");
+    //    bot.sendMessage(SECRET_BOT_CHATID, "== Minutes worked: " + String(params.controllerUptime) + " ==" + "\n" + lastSystemStatus + "\n" + lastEnvironmentStatus);
+    //    SWWatchdog.clear();
+    //    bot.sendMessage(SECRET_BOT_CHATID, lastOperationStatus);
+    //    SWWatchdog.clear();
+    //    bot.sendMessage(SECRET_BOT_CHATID, "\n" + String(lastControlStatus) + "\n" + String(lastNetworkStatus) + "\n" + String(lastDateTimeStatus) + "\n== End of status ==");
     SWWatchdog.clear();
   }
   else {
     Serial.println (F("Telegram ERROR notification aborted due to no Internet connection!"));
+    getEpochFromInternet();
+    if (InternetConnectionAlive && !TelegramConnectionAlive) initTelegramBotConfiguration ();
   }
   Serial.println("");
 }
@@ -1943,29 +1957,35 @@ void communicateWithTelegram() {
           }
           else if (bot.messages[i].text.substring(0, 10) == "/minvolume") {
             commands.minWaterVolume = (bot.messages[i].text.substring(11)).toInt();
-            bot.sendMessage(bot.messages[i].chat_id, "commands.minWaterVolume changed to " + String(commands.minWaterVolume) + " L.");
+            bot.sendMessage(bot.messages[i].chat_id, "minWaterVolume changed to " + String(commands.minWaterVolume) + " L.");
           }
           else if (bot.messages[i].text.substring(0, 10) == "/maxvolume") {
             commands.maxWaterVolume = (bot.messages[i].text.substring(11)).toInt();
-            bot.sendMessage(bot.messages[i].chat_id, "commands.maxWaterVolume changed to " + String(commands.maxWaterVolume) + " L.");
+            bot.sendMessage(bot.messages[i].chat_id, "maxWaterVolume changed to " + String(commands.maxWaterVolume) + " L.");
           }
           else if (bot.messages[i].text.substring(0, 11) == "/debuglevel") {
             commands.debugLevel = (bot.messages[i].text.substring(12)).toInt();
-            bot.sendMessage(bot.messages[i].chat_id, "commands.debugLevel changed to " + String(commands.debugLevel));
+            bot.sendMessage(bot.messages[i].chat_id, "debugLevel changed to " + String(commands.debugLevel));
           }
           else if (bot.messages[i].text == "/pause") {
             commands.forcePause = true;
             bot.sendMessage(bot.messages[i].chat_id, "Force pause mode started.");
           }
           else if (bot.messages[i].text == "/resume") {
-            commands.forcePause = false;
-            bot.sendMessage(bot.messages[i].chat_id, "Resumed from pause mode.");
+            if (commands.forcePause) {
+              commands.forcePause = false;
+              bot.sendMessage(bot.messages[i].chat_id, "Resuming from pause mode...");
+            }
+            else if (params.faultCode) {
+              bot.sendMessage(bot.messages[i].chat_id, "Resuming from error...");
+              resumeFromErrorFunction();
+            }
           }
-          else if (bot.messages[i].text == "/commands.autoReset ON") {
+          else if (bot.messages[i].text == "/autoreset ON") {
             commands.autoReset = true;
             bot.sendMessage(bot.messages[i].chat_id, "autoReset mode set to: " + String (commands.autoReset));
           }
-          else if (bot.messages[i].text == "/commands.autoReset OFF") {
+          else if (bot.messages[i].text == "/autoreset OFF") {
             commands.autoReset = false;
             bot.sendMessage(bot.messages[i].chat_id, "autoReset mode set to: " + String (commands.autoReset));
           }
