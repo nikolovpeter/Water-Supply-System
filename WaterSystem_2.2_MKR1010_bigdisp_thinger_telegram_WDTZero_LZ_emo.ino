@@ -56,22 +56,23 @@
 #define flowSensor 0             // Flow sensor (or another input that has interrupt) - do not change - needed for pin interrupt or PCI
 #define ONE_WIRE_BUS 1           // OneWire interface (for thermometers) // temp - to be moved to 9
 #define AmbientThermometer1Pin 2 // DHT 11 ambient thermometer 1 interface - basement
-#define currentManualFillingLED 3 // Filling pump manual control LED indicator
+#define currentManualFillingLED 6 // Filling pump manual control LED indicator
 #define additiveEffector 4       // Effector for adding desinfectant (function not implemented yet)
 #define fillingPump 5            // Filling pump 
-#define waterDrawPump 6          // Water draw (pressure) pump permission relay
-#define AmbientThermometer2Pin 9 // DHT 11 ambient thermometer 2 interface - house
-#define buzzer 10                // Buzzer/beeper
-#define fillingPumpACCurrent A0  // Filling pump AC current sensor (A6 is an analog input only pin on Nano)
-#define doorSwitch A6            // // temp - to be moved to 2 - Door open switch (or another input that has interrupt) - do not change - needed for pin interrupt or PCI
-#define encoderPinA A2           // Rotary encoder CLK 
-#define encoderPinB A3           // Rotary encoder DT 
-#define selectorButton 7         // Selector/pause/resume/reset button 
-#define manualButton 8           // Manual control button 
-#define FloatSwitchSensor A1     // Water float switch sensor = backup water level sensor
+#define pressurePump 3          // Water draw (pressure) pump permission relay
+#define AmbientThermometer2Pin 9 // DHT 11 ambient thermometer 2 interface - house (3.3 V)
+#define buzzer 10                // Buzzer/beeper (3.3 V)
+#define fillingPumpACCurrent A0  // Filling pump AC current sensor (3.3 V) 
+#define doorSwitch A1            // Door open switch (better to use another input that has interrupt)
+#define encoderPinA A2           // Rotary encoder CLK (3.3 V)
+#define encoderPinB A3           // Rotary encoder DT (3.3 V)
+#define selectorButton 7         // Selector/pause/resume/reset button (3.3 V)
+#define manualButton 8           // Manual control button (3.3 V)
+#define FloatSwitchSensor A4     // Water float switch sensor - to be used as a backup water level sensor, code not implemented yet
 
 
 // Note: On Uno and Nano A4 and A5 are for I2C, and on Leonardo I2C is on 2 and 3.
+// A6 is an analog input only pin on Nano
 
 
 //Communication over EasyTransferI2C
@@ -109,6 +110,7 @@ struct RO_PARAMS_DATA_STRUCTURE {
   uint16_t currentFillDuration; // in minutes
   uint16_t lastFillDuration; // in minutes
   uint8_t fillingPumpHold = true;
+  uint8_t fillingPumpACcurrent;
   int16_t waterVolume;
   int8_t currentWaterFlow;
   int8_t waterTemperature;
@@ -116,7 +118,7 @@ struct RO_PARAMS_DATA_STRUCTURE {
   int8_t ambientHumidity1;
   int8_t ambientTemperature2;
   int8_t ambientHumidity2;
-  uint8_t doorSwitchState;
+  uint8_t doorSwitchState = false;
   uint8_t pausedState = false;
   uint8_t faultCode = 0;
   uint16_t controllerUptime; // Controller uptime in minutes
@@ -196,10 +198,10 @@ const unsigned long menuTimerTimeout = 30000; // Menu timer timeout in milliseco
 
 
 // Filling and pump variables declaration
-const int presssureMinWaterVolume = 30; // Lower water level limit to start refilling
-const int waterVolumeLimit = 290; // Water level limit to count as overfilling
+const int presssureMinWaterVolume = 30; // Minimum water level to enable pressure pump
+const int waterVolumeLimit = 290; // Maximum water level limit to count as overfilling
 const byte pauseBetweenFills = 2; // Minimum pause between fills in minutes
-const byte singleFillMaxDuration = 10; // Maximum allowed duration of a single filling cycle in minutes
+const byte singleFillMaxDuration = 20; // Maximum allowed duration of a single filling cycle in minutes
 const byte totalFillMaxDuration = 30;  // Maximum allowed duration of all filling cycles in minutes within the last totalFillCyclePeriod minutes (by default in the last 120 minutes)
 const byte totalFillCyclePeriod = 120; // In minutes - cycle period to control maximum allowed filling duration (cannot be more than the bits in historyByMinutes[]) - 2 hours
 byte currentHistoryPointer = 0; // Number between 0 and totalFillCyclePeriod - current pointer in the history by minutes
@@ -207,8 +209,7 @@ byte historyArrayPointer;
 byte historyArrayBitPointer;
 unsigned long historyByMinutes[4] = {0, 0, 0, 0}; // Array to store filling pump status by minutes for the last 2 hours (128 minutes)
 unsigned long lastFillStartTime;
-unsigned long lastFillStopTime;
-//unsigned long fillStartPausedDuration;
+unsigned long lastFillStopTime = millis();
 
 
 
@@ -246,16 +247,22 @@ bool ambientTemperatureError2 = false;
 
 
 // AC Current sensor variables
-int ACsensor_mtbs = 3000; //mean time between AC current measurements in milliseconds
-unsigned long ACsensor_lasttime = 0;   //last time laser distance has been measured
+int ACsensor_mtbs = 500; //Mean time between AC current measurements in milliseconds
+unsigned long ACsensor_lasttime = 0;   //last time AC current has been measured
+float ACcalibration = 480.00; // Empirical AC current calibration constant
+int ACsampling = 370; // Empirical AC current sampling rate
+float ACIrms = 0.0;
+const float AClimit = 9.0; // AC limit: 9 Amp
+bool ACoverCurrent = false;
 
+
+// Door switch variables
+bool lastDoorSwitchState = LOW;
 
 
 // Pause-resume functions variables declaration
 volatile unsigned long stopTime = 0;       // Record time program was paused
 volatile unsigned long pausedDuration = 0; // Record how long the program was paused for
-
-
 
 
 // WiFi variables and constants
@@ -276,7 +283,6 @@ unsigned long Bot_lastMessage;   //last time a message has been received
 bool TelegramConnectionAlive = false;
 
 
-
 // Thinger variables and constants
 volatile bool newData = false;
 volatile unsigned long dataTransferTimer;
@@ -285,7 +291,6 @@ int Thinger_mtbs = 1000; //mean time between scan messages in milliseconds
 unsigned long Thinger_sleeptime = 60000; // time in milliseconds to put Thinger to sleep by increasing Thinger_mtbs
 unsigned long Thinger_lasttime;   //last time messages' scan has been done
 unsigned long Thinger_lastMessage;   //last time a message has been received
-
 
 
 // Communication variables declaration
@@ -297,9 +302,8 @@ char lastDateTimeStatus [150];
 char lastNetworkStatus [200];
 
 
-
 // Error reporting variables declaration
-const PROGMEM char faultDescriptionArray[8][22] {"Water t-sensor err.", "Amb. t-sensor err.", "LD sensor err.", "No Fpump water flow.", "Freezing risk!", "Overfill!", "Filling too long.", "General error."};
+const PROGMEM char faultDescriptionArray[8][22] {"Water t-sensor err.", "Amb. t-sensor err.", "LD sensor err.", "No Fpump water flow.", "Freezing risk!", "Overfill!", "Filling too long.", "General err."};
 const PROGMEM char faultActionArray[8][4] {"000", "000", "0FP", "0F0", "0FP", "PF0", "PF0", "PFP"}; // First letter: force pause if P; second letter: forbid filling pump if F; third letter: forbid pressure pump if P
 byte lastFaultCode = 0;
 char binaryfaultCodeString[9];
@@ -342,7 +346,7 @@ void TimeElapsedFunction() { // Time counter
 
 
 void generateStatusStrings() {
-  snprintf_P(lastSystemStatus, sizeof(lastSystemStatus), PSTR("== Water volume: %d L;\nWater flow: %d L/min;\nWater temperature: %d°C;\nCurrent fill duration: %d min;\nLast fill duration: %d min;\nFilling pump uptime: %d min/2h. =="), params.waterVolume, params.currentWaterFlow, params.waterTemperature, params.currentFillDuration, params.lastFillDuration, params.fillingPumpONDuration);
+  snprintf_P(lastSystemStatus, sizeof(lastSystemStatus), PSTR("== Water volume: %d L;\nWater flow: %d L/min;\nAC current: %d A;\nWater temperature: %d°C;\nCurrent fill duration: %d min;\nLast fill duration: %d min;\nFilling pump uptime: %d min/2h. =="), params.waterVolume, params.currentWaterFlow, params.fillingPumpACcurrent, params.waterTemperature, params.currentFillDuration, params.lastFillDuration, params.fillingPumpONDuration);
   snprintf_P(lastEnvironmentStatus, sizeof(lastEnvironmentStatus), PSTR("== Amb. temp. 1 (basement): %d°C; Amb. hum. 1: %d%%;\nAmb. temp. 2 (house): %d°C; Amb. hum. 2: %d%%. =="), params.ambientTemperature1, params.ambientHumidity1, params.ambientTemperature2, params.ambientHumidity2);
   snprintf_P(lastOperationStatus, sizeof(lastOperationStatus), PSTR("== Pressure pump status: %d;\nCurrent auto filling: %d;\nCurrent manual filling: %d;\nController uptime: %d min;\nPaused state: %d;\nMannual override mode: %d;\nAuto reset mode: %d;\nDoor switch state: %d;\nFault code: %d. =="), params.currentPressure, params.currentAutoFilling, params.currentManualFilling, params.controllerUptime, params.pausedState, commands.forceNoChecks, commands.autoReset, params.doorSwitchState, params.faultCode);
   snprintf_P(lastControlStatus, sizeof(lastControlStatus), PSTR("== Pressure mode: %d; Filling mode: %d;\nForce pause: %d; Force reset: %d;\nminWaterVolume: %d L; maxWaterVolume: %d L. =="), commands.pressureMode, commands.fillingMode, commands.forcePause, commands.forceReset, commands.minWaterVolume, commands.maxWaterVolume);
@@ -621,16 +625,35 @@ void manualButtonISR() { // Read buttons and take actions as needed
 
 
 
-void doorSwitchFunction() { // Read buttons and take actions as needed
-  if (digitalRead(doorSwitch) == LOW) {
-    params.doorSwitchState = true;
-    Serial.println(F("Basement door open!")); //temp
-    veryLongBeep();
-    shortBeep();
+void doorSwitchFunction() { // Read door switch and take actions as needed
+  int currentDoorSwitchAnalogValue = analogRead(doorSwitch);
+  if (commands.debugLevel > 2) {
+    Serial.print(F("=============================================== Door switch analog value: ")); //temp
+    Serial.println (currentDoorSwitchAnalogValue);
   }
-  else params.doorSwitchState = false;
+  //  bool currentDoorSwitchState = digitalRead(doorSwitch);
+  bool currentDoorSwitchState;
+  if (currentDoorSwitchAnalogValue > 800) currentDoorSwitchState = LOW; else currentDoorSwitchState = HIGH; // temp
+  if (currentDoorSwitchState != lastDoorSwitchState) {
+    lastDoorSwitchState = currentDoorSwitchState;
+    if (currentDoorSwitchState == LOW) {
+      params.doorSwitchState = true;
+      Serial.println(F("Basement door open!")); //temp
+      veryLongBeep();
+      veryLongBeep();
+      veryLongBeep();
+      shortBeep();
+    }
+    else {
+      params.doorSwitchState = false;
+      Serial.println(F("Basement door closed.")); //temp
+      shortBeep();
+      shortBeep();
+      shortBeep();
+      shortBeep();
+    }
+  }
 }
-
 
 
 //Display actions
@@ -667,22 +690,28 @@ void displayCurrentStatus() {
     strcpy(displayLineString[1], "");
     strcpy(displayLineString[2], "");
     strcpy(displayLineString[3], "");
-    displayFillingLine ();
-    displayPressureLine ();
     switch (currentDisplayCycle) { // Cycle display
       case 0: // Display cycle 0
+        displayFillingLine ();
+        displayPressureLine ();
         if (params.currentAutoFilling || params.currentManualFilling) displayFlowDurationLine(); else displayTimeAndUptime();
         displayAmbientLine();
         break;
       case 1: // Display cycle 1
+        displayFillingLine ();
+        if (params.doorSwitchState) snprintf_P(displayLineString[1], sizeof(displayLineString[1]), PSTR("BASEMENT DOOR OPEN! ")); else displayPressureLine ();
         if (params.currentAutoFilling || params.currentManualFilling) displayFlowDurationLine(); else displayTimeAndUptime();
         displayAmbientLine();
         break;
       case 2: // Display cycle 2
+        displayFillingLine ();
+        displayPressureLine ();
         displayTimeAndUptime();
         displayWiFiStatus();
         break;
       case 3: // Display cycle 3
+        displayFillingLine ();
+        if (params.doorSwitchState) snprintf_P(displayLineString[1], sizeof(displayLineString[1]), PSTR("BASEMENT DOOR OPEN! ")); else displayPressureLine ();
         if (params.faultCode != 0) displayFaultCode(); else displayTimeAndUptime();
         displayWiFiStatus();
         break;
@@ -775,7 +804,7 @@ void displayPressureLine () { // char displayLineString[0][21];     //Pres:AUTO 
 void displayFlowDurationLine () {  // char displayLineString[3][21];     // mFl:35L/min Dur:38'  or  FaultDescription or Submenu Item
   char temporaryString [16] = "";
   //                                                                                               01234567890123456789
-  if (params.fillingPumpHold) snprintf_P(displayLineString[2], sizeof(displayLineString[2]), PSTR(" Waiting to fill..."));
+  if (params.fillingPumpHold) snprintf_P(displayLineString[2], sizeof(displayLineString[2]), PSTR("  Waiting to fill..."));
   else {
     strcpy_P(displayLineString[2], PSTR(" Flow"));
     if (commands.forceNoChecks) strcat(displayLineString[2], "!"); else strcat(displayLineString[2], ":");
@@ -855,14 +884,14 @@ void shortBeep() {
 
 
 void longBeep() {
-  tone (buzzer, 700, 150); // Buzz for 80 milliseconds with frequency 700 Hz - new data received from remote controller
-  delay (120);
+  tone (buzzer, 700, 150); // Buzz for 150 milliseconds with frequency 700 Hz - new data received from remote controller
+  delay (190);
 }
 
 
 void veryLongBeep() {
-  tone (buzzer, 700, 250); // Buzz for 80 milliseconds with frequency 700 Hz - new data received from remote controller
-  delay (120);
+  tone (buzzer, 700, 250); // Buzz for 250 milliseconds with frequency 700 Hz - new data received from remote controller
+  delay (290);
 }
 
 
@@ -983,32 +1012,54 @@ void readWaterVolume() { // Read current water level in litres
 
 void initEmonCurrentSensor () {
   Serial.println(F("##### AC current sensor init started... #####"));
-  emon1.current(fillingPumpACCurrent, 60.6);             // Current: input pin, calibration.
-  //  emon1.current(fillingPumpACCurrent, 111.1);             // Current: input pin, calibration.
+  //  emon1.current(fillingPumpACCurrent, 60.6);             // Current: input pin, calibration for 33 ohm burden resistor.
+  //  emon1.current(fillingPumpACCurrent, 111.1);             // Current: input pin, calibration for 18 ohm burden resistor.
+  emon1.current(fillingPumpACCurrent, ACcalibration);             // Current: input pin, experimental calibration.
   strcpy (initActionResult, "");
-  //                                                           01234567890123456789
+  int tempACsensor_mtbs = ACsensor_mtbs;
+  ACsensor_mtbs = 200;
+  ACsensor_lasttime = millis();
+  for (i = 0; i < 20; i++) { // Initialize AC current measurement to compensate for initial drift
+    ACIrms = emon1.calcIrms(ACsampling);  // Calculate Irms only
+    if (commands.debugLevel || (params.faultCode & 0b01001000) != 0 || true) {
+      Serial.print(F("   =====                      AC current reading: "));
+      Serial.print(ACIrms);          // Irms
+      Serial.print(" Amp; apparent power: ");
+      Serial.print(ACIrms * 230);       // Apparent power
+      Serial.print(" W, @ sampling rate: ");
+      Serial.print(ACsampling);
+      Serial.println(" =====");
+    }
+  }
+  ACsensor_mtbs = tempACsensor_mtbs;
   snprintf_P(initActionResult, sizeof(initActionResult), PSTR("AC current snsr.[OK]"));
-  Serial.println(F("##### AC current sensor intialized. #####"));
+  Serial.print(F("##### AC current sensor intialized with calibration constant: "));
+  Serial.print(ACcalibration);
+  Serial.println(F(". #####"));
   Serial.println("");
 }
 
 
 
-double readEmonCurrentSensor () {
+void readEmonCurrentSensor () {
   if (millis() > ACsensor_lasttime + ACsensor_mtbs)  {
-    if (commands.debugLevel || (params.faultCode & 0b01001000) != 0) Serial.print(F("   =====                      AC current reading: "));
-    double Irms = emon1.calcIrms(740); // Calculate Irms only
-    //    double Irms = emon1.calcIrms(1480);  // Calculate Irms only
-    if (commands.debugLevel || (params.faultCode & 0b01001000) != 0) Serial.print(Irms);          // Irms
-    if (commands.debugLevel || (params.faultCode & 0b01001000) != 0) Serial.print(" Amp; apparent power: ");
-    if (commands.debugLevel || (params.faultCode & 0b01001000) != 0) Serial.print(Irms * 230.0);       // Apparent power
-    if (commands.debugLevel || (params.faultCode & 0b01001000) != 0) Serial.println(" W      =====");
+    //    double Irms = emon1.calcIrms(740); // Calculate Irms only
+    //    double Irms = emon1.calcIrms(1480); // Calculate Irms only
+    //    double Irms = emon1.calcIrms(ACsampling);  // Calculate Irms only
+    ACIrms = emon1.calcIrms(ACsampling) - 0.2;  // Calculate Irms only
+    if (commands.debugLevel || (params.faultCode & 0b01001000) != 0 || true) {
+      Serial.print(F("   =====                      AC current reading: "));
+      Serial.print(ACIrms);          // Irms
+      Serial.print(" Amp; apparent power: ");
+      Serial.print(ACIrms * 230);       // Apparent power
+      Serial.print(" W, @ sampling rate: ");
+      Serial.print(ACsampling);
+      Serial.println(" =====");
+    }
     ACsensor_lasttime = millis();
-    return Irms;
   }
+  params.fillingPumpACcurrent = round(ACIrms);
 }
-
-
 
 
 void readWaterFlow() {  // Read water flow sensor and return flow in L/min
@@ -1270,6 +1321,16 @@ void CheckForAlarms() { // Check for filling alarms
     params.faultCode &= 0b11011111; // Clear bit 5 of faultCode = no overfill
   }
   if (digitalRead (fillingPump) == HIGH) {
+    ACsensor_mtbs = 500;
+    if (ACIrms > AClimit) { // Check if filling pump AC current too high and switch filling pump off if needed
+      params.currentAutoFilling = false;
+      params.currentManualFilling = false;
+      manualButtonCode = false;
+      params.faultCode |= 0b10000000; // Set bit 7 of faultCode = General error
+      ACoverCurrent = true;
+      FillingPumpOFFAction();
+    }
+    else ACoverCurrent = false;
     if (params.currentFillDuration >= (singleFillMaxDuration )) {
       if (params.currentAutoFilling) {
         params.faultCode |= 0b01000000; // Set bit 6 of faultCode = Filling too long, i.e. continuing for more than singleFillMaxDuration minutes
@@ -1295,6 +1356,7 @@ void CheckForAlarms() { // Check for filling alarms
       }
     }
   }
+  else ACsensor_mtbs = 2000;
   if (params.waterVolume > commands.maxWaterVolume + 3 || ((params.faultCode & 0b10110111) != 0)) { // Do not allow manual filling if tank near to overfill
     manualButtonCode = false;
     params.currentManualFilling = false;
@@ -1368,6 +1430,9 @@ void ErrorFunction() { // Error encountered - stop all processes and show fault 
           if (ambientTemperatureError1) strcat_P (faultDescription, PSTR(":Sensor 1"));
           if (ambientTemperatureError2) strcat_P (faultDescription, PSTR(":Sensor 2"));
         }
+        if (i == 7) { // If there is a general error (bit 7 of params.faultCode is 1), add specification if it is AC overcurrent
+          if (ACoverCurrent) strcat_P (faultDescription, PSTR(": AC over current!"));
+        }
         strcat_P (faultDescription, PSTR("> "));
         char faultActionsText[4];
         strcpy_P (faultActionsText, faultActionArray[i]);
@@ -1437,11 +1502,6 @@ void ErrorFunction() { // Error encountered - stop all processes and show fault 
 */
 
 
-//void doorSwitchFunction() { // Door swich action
-//
-//}
-
-
 // Program flow actions
 
 
@@ -1455,7 +1515,7 @@ void InitiateResetFunction () { // Declaration of reset function
 
 void StopAllFunction() {  // Stop all parts of the machine
   FillingPumpOFFAction();
-  digitalWrite(waterDrawPump, LOW);
+  digitalWrite(pressurePump, LOW);
   digitalWrite(currentManualFillingLED, LOW);
   digitalWrite(additiveEffector, LOW);
 }
@@ -1751,8 +1811,11 @@ void initThingerConfiguration () {
     thing["CA"] >> outputValue(params.currentAutoFilling);
     thing["CM"] >> outputValue(params.currentManualFilling);
     thing["CP"] >> outputValue(params.currentPressure);
-    thing["UT"] >> outputValue(params.fillingPumpONDuration);
+    thing["FH"] >> outputValue(params.fillingPumpHold);
+    thing["CF"] >> outputValue(params.currentFillDuration);
     thing["LF"] >> outputValue(params.lastFillDuration);
+    thing["UT"] >> outputValue(params.fillingPumpONDuration);
+    thing["AC"] >> outputValue(params.fillingPumpACcurrent);
     thing["WV"] >> outputValue(params.waterVolume);
     thing["WF"] >> outputValue(params.currentWaterFlow);
     thing["WT"] >> outputValue(params.waterTemperature);
@@ -1761,9 +1824,15 @@ void initThingerConfiguration () {
     thing["T2"] >> outputValue(params.ambientTemperature2);
     thing["H2"] >> outputValue(params.ambientHumidity2);
     thing["DS"] >> outputValue(params.doorSwitchState);
-    softwareWatchdog.clear();
     thing["PS"] >> outputValue(params.pausedState);
     thing["FC"] >> outputValue(params.faultCode);
+    thing["CU"] >> outputValue(params.controllerUptime);
+    thing["TH"] >> outputValue(params.currentTimeHours);
+    thing["TM"] >> outputValue(params.currentTimeMinutes);
+    thing["TS"] >> outputValue(params.currentTimeSeconds);
+    thing["DY"] >> outputValue(params.currentDateYear);
+    thing["DM"] >> outputValue(params.currentDateMonth);
+    thing["DD"] >> outputValue(params.currentDateDay);
     thing["PM"] >> outputValue(commands.pressureMode);
     thing["FM"] >> outputValue(commands.fillingMode);
     thing["LV"] >> outputValue(commands.minWaterVolume);
@@ -1772,13 +1841,6 @@ void initThingerConfiguration () {
     thing["FR"] >> outputValue(commands.forceReset);
     thing["FP"] >> outputValue(commands.forcePause);
     thing["FN"] >> outputValue(commands.forceNoChecks);
-    thing["CU"] >> outputValue(params.controllerUptime);
-    thing["TH"] >> outputValue(params.currentTimeHours);
-    thing["TM"] >> outputValue(params.currentTimeMinutes);
-    thing["TS"] >> outputValue(params.currentTimeSeconds);
-    thing["DY"] >> outputValue(params.currentDateYear);
-    thing["DM"] >> outputValue(params.currentDateMonth);
-    thing["DD"] >> outputValue(params.currentDateDay);
     // Define input of new data in newCommands.
     softwareWatchdog.clear();
     thing["nPM"] << inputValue (newCommands.pressureMode, {newData = true;});
@@ -1993,16 +2055,25 @@ void communicateWithTelegram() {
             bot.sendMessage(bot.messages[i].chat_id, "Local feedback mode changed to ON.");
           }
           else if (bot.messages[i].text.substring(0, 10) == "/minvolume") {
-            commands.minWaterVolume = (bot.messages[i].text.substring(11)).toInt();
+            commands.minWaterVolume = (bot.messages[i].text.substring(11, 14)).toInt();
             bot.sendMessage(bot.messages[i].chat_id, "minWaterVolume changed to " + String(commands.minWaterVolume) + " L.");
           }
           else if (bot.messages[i].text.substring(0, 10) == "/maxvolume") {
-            commands.maxWaterVolume = (bot.messages[i].text.substring(11)).toInt();
+            commands.maxWaterVolume = (bot.messages[i].text.substring(11, 14)).toInt();
             bot.sendMessage(bot.messages[i].chat_id, "maxWaterVolume changed to " + String(commands.maxWaterVolume) + " L.");
           }
           else if (bot.messages[i].text.substring(0, 11) == "/debuglevel") {
-            commands.debugLevel = (bot.messages[i].text.substring(12)).toInt();
+            commands.debugLevel = (bot.messages[i].text.substring(12, 13)).toInt();
             bot.sendMessage(bot.messages[i].chat_id, "debugLevel changed to " + String(commands.debugLevel));
+          }
+          else if (bot.messages[i].text.substring(0, 6) == "/ACcal") {
+            ACcalibration = (bot.messages[i].text.substring(7, 10)).toInt() * 1.0;
+            bot.sendMessage(bot.messages[i].chat_id, "ACcalibration changed to " + String(ACcalibration));
+            initEmonCurrentSensor();
+          }
+          else if (bot.messages[i].text.substring(0, 11) == "/ACsampling") {
+            ACsampling = (bot.messages[i].text.substring(12, 16)).toInt();
+            bot.sendMessage(bot.messages[i].chat_id, "ACsampling changed to " + String(ACsampling));
           }
           else if (bot.messages[i].text == "/pause") {
             commands.forcePause = true;
@@ -2034,8 +2105,8 @@ void communicateWithTelegram() {
             bot.sendMessage(bot.messages[i].chat_id, "== Supported commands: ==\n/start: Start an active chat with the bot.\n/status: Request actual status report.\n/pressure OFF: Switch pressure pump OFF.\n/pressure ON: Set pressure pump to AUTO mode.\n/pressure AUTO: = /pressure ON");
             softwareWatchdog.clear();
             bot.sendMessage(bot.messages[i].chat_id, "/filling OFF: Switch filling pump OFF.\n/filling ALL: Set filling pump to AUTO+MANUAL mode.\n/filling A+M: = /filling ALL\n/filling AUTO: Set filling pump to AUTO ONLY mode.\n/filling A: = /filling AUTO\n/filling MANUAL: Set filling pump to MANUAL ONLY mode.\n/filling M: = /filling MANUAL");
-            //            softwareWatchdog.clear();
-            //            bot.sendMessage(bot.messages[i].chat_id, "");
+            softwareWatchdog.clear();
+            bot.sendMessage(bot.messages[i].chat_id, "/ACcal XXX: Calibrate AC current.\n/ACsampling XXXX: change AC sampling rate.");
             softwareWatchdog.clear();
             bot.sendMessage(bot.messages[i].chat_id, "/minvolume XXX: Set lowest water level to XXX litres.\n/maxvolume XXX: Set highest water level to XXX litres.\n/pause: Force system into pause mode.\n/resume: Resume system from pause mode or from error.");
             softwareWatchdog.clear();
@@ -2118,7 +2189,7 @@ void executeChecksAndCommands() {
   digitalWrite(currentManualFillingLED, params.currentManualFilling);
   if ((params.currentManualFilling || params.currentAutoFilling) && !params.fillingPumpHold) FillingPumpONAction(); // Start/maintain active filling pump
   if ((!params.currentManualFilling && !params.currentAutoFilling) || params.fillingPumpHold) FillingPumpOFFAction(); // Stop/maintain non-active filling pump
-  digitalWrite (waterDrawPump, params.currentPressure); // Actuate pressure pump state
+  digitalWrite (pressurePump, params.currentPressure); // Actuate pressure pump state
   if (commands.debugLevel > 2) Serial.println(F(" === executeChecksAndCommands point 3 - end. ==="));
   softwareWatchdog.clear();
 }
@@ -2136,20 +2207,20 @@ void setup() {
   softwareWatchdog.clear();
   // Init pins and pin interrupts
   pinMode(fillingPump, OUTPUT);
-  pinMode(waterDrawPump, OUTPUT);
+  pinMode(pressurePump, OUTPUT);
   pinMode(currentManualFillingLED, OUTPUT);
   pinMode(additiveEffector, OUTPUT);
   pinMode(buzzer, OUTPUT);                  // Buzzer
   pinMode(FloatSwitchSensor, INPUT_PULLUP); // Float switch sensor
   pinMode(flowSensor, INPUT_PULLUP);        // Flow sensor or another input that needs interrupt
-  pinMode(doorSwitch, INPUT_PULLUP);        // Door switch
+  //  pinMode(doorSwitch, INPUT_PULLUP);        // Door switch
   pinMode(fillingPumpACCurrent, INPUT);     // AC current - analogue input
   pinMode(encoderPinA, INPUT_PULLUP);       // Rotary encoder CLK
   pinMode(encoderPinB, INPUT_PULLUP);       // Rotary encoder DT
   pinMode(selectorButton, INPUT_PULLUP);    // Selector button
   pinMode(manualButton, INPUT_PULLUP);      // Manual fill button
   digitalWrite(fillingPump, LOW);
-  digitalWrite(waterDrawPump, LOW);
+  digitalWrite(pressurePump, LOW);
   digitalWrite(additiveEffector, LOW);
   digitalWrite(currentManualFillingLED, LOW);
   // attachInterrupt(digitalPinToInterrupt(doorSwitch), doorSwitchFunctionISR, FALLING);
